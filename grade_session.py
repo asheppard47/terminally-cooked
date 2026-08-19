@@ -19,11 +19,12 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-SCORING_VERSION = "scoring-v0.1 (entertainment only)"
+SCORING_VERSION = "scoring-v0.2 (entertainment only)"
 PROJECTS_DIR = Path.home() / ".claude" / "projects"
 
 # Known-format tally parsing (non-semantic; fails open on no-match).
 TALLY_RE = re.compile(r"(\d+)\s+passed(?:,?\s+(\d+)\s+fail(?:ed|ures?))?", re.IGNORECASE)
+OVERLOAD_RE = re.compile(r"overloaded|\b529\b", re.IGNORECASE)
 INTERRUPT_MARKER = "[Request interrupted"
 
 
@@ -62,29 +63,50 @@ def analyze(path):
         "first_ts": None,
         "last_ts": None,
         "user_prompts": 0,
+        "tokens_in": 0,
+        "tokens_out": 0,
+        "yolo_mode": False,
+        "plan_entries": 0,
+        "overloads": 0,
+        "longest_cook": 0,
     }
-    streak = spiral = 0
+    streak = spiral = cook = 0
     for rec in iter_records(path):
         ts = rec.get("timestamp")
         if ts:
             s["first_ts"] = s["first_ts"] or ts
             s["last_ts"] = ts
         rtype = rec.get("type")
-        if rtype == "assistant":
-            model = (rec.get("message") or {}).get("model")
+        if rtype == "permission-mode":
+            mode = str(rec.get("permissionMode", ""))
+            if mode == "bypassPermissions":
+                s["yolo_mode"] = True
+            elif mode == "plan":
+                s["plan_entries"] += 1
+        elif rtype == "assistant":
+            msg = rec.get("message") or {}
+            model = msg.get("model")
             if model and not model.startswith("<"):
                 s["models"][model] = s["models"].get(model, 0) + 1
             effort = rec.get("effort")
             if effort:
                 s["efforts"][effort] = s["efforts"].get(effort, 0) + 1
-            for block in (rec.get("message") or {}).get("content") or []:
+            usage = msg.get("usage") or {}
+            s["tokens_in"] += (usage.get("input_tokens", 0)
+                               + usage.get("cache_read_input_tokens", 0)
+                               + usage.get("cache_creation_input_tokens", 0))
+            s["tokens_out"] += usage.get("output_tokens", 0)
+            for block in msg.get("content") or []:
                 if isinstance(block, dict) and block.get("type") == "tool_use":
                     name = block.get("name", "?")
                     s["tools"][name] = s["tools"].get(name, 0) + 1
+                    cook += 1
+                    s["longest_cook"] = max(s["longest_cook"], cook)
         elif rtype == "user":
             content = (rec.get("message") or {}).get("content")
             if isinstance(content, str):
                 s["user_prompts"] += 1
+                cook = 0
                 if INTERRUPT_MARKER in content:
                     s["interruptions"] += 1
                 continue
@@ -94,13 +116,17 @@ def analyze(path):
             for block in content:
                 if not isinstance(block, dict):
                     continue
-                if block.get("type") == "text" and INTERRUPT_MARKER in block.get("text", ""):
-                    s["interruptions"] += 1
+                if block.get("type") == "text":
+                    cook = 0
+                    if INTERRUPT_MARKER in block.get("text", ""):
+                        s["interruptions"] += 1
                 if block.get("type") != "tool_result":
                     continue
                 saw_tool_result = True
                 if block.get("is_error"):
                     s["red"] += 1
+                    if OVERLOAD_RE.search(tool_result_text(block)):
+                        s["overloads"] += 1
                     spiral += 1
                     s["worst_spiral"] = max(s["worst_spiral"], spiral)
                     streak = 0
@@ -162,9 +188,18 @@ def pick_buffs(s):
         buffs.append(("Twenty Questions", 0.9, f"asked the human {tools['AskUserQuestion']} times"))
     if s["interruptions"] >= 3:
         buffs.append(("Backseat Driver", 0.8, f"human slammed the brakes {s['interruptions']} times"))
+    # Research-backed entries (X sweep 2026-08-18; see llm-grader-concept.md)
+    if s["yolo_mode"]:
+        buffs.append(("YOLO MODE", 1.4, "--dangerously-skip-permissions. respect."))
+    if s["longest_cook"] >= 50:
+        buffs.append(("LET IT COOK", 1.3, f"{s['longest_cook']} tool calls without human input"))
+    if s["tokens_in"] >= 100_000_000 or s["tokens_out"] >= 1_000_000:
+        buffs.append(("Token Bonfire", 1.2, f"{s['tokens_in']/1e6:.0f}M tokens. the meter is spinning."))
+    if s["plan_entries"] >= 1 and tools.get("Edit", 0) + tools.get("Write", 0) == 0:
+        buffs.append(("All Plan No Game", 0.8, f"entered plan mode {s['plan_entries']}x, edited nothing"))
+    if s["overloads"] >= 1:
+        buffs.append(("Overloaded", 0.9, f"the API said no, {s['overloads']}x (rare)"))
     reads, bashes = tools.get("Read", 0), tools.get("Bash", 0)
-    if bashes >= 30 and reads < bashes // 5:
-        buffs.append(("YOLO Ops", 1.1, f"{bashes} commands, barely read a thing"))
     if reads >= 20 and reads > bashes:
         buffs.append(("Bookworm", 1.0, f"read {reads} files, touched grass never"))
     if mins and mins >= 240:
@@ -234,6 +269,8 @@ def render(s, buffs, final):
         out.append(C.green(f"  + # {lt[0]} passed, {lt[1]} failed"))
     tool_bits = "  ".join(f"{k}:{v}" for k, v in sorted(s["tools"].items(), key=lambda kv: -kv[1])[:6])
     out.append(C.dim(f"  {tool_bits}"))
+    if s["tokens_in"] or s["tokens_out"]:
+        out.append(C.dim(f"  tokens: {s['tokens_in']/1e6:,.1f}M in · {s['tokens_out']/1e6:,.2f}M out"))
     out.append(C.dim("├" + line + "┤"))
     for name, mult, why in buffs:
         tag = C.green(f"×{mult}") if mult >= 1 else C.red(f"×{mult}")
