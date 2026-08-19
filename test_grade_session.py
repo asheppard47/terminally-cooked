@@ -154,7 +154,144 @@ def test_score_floor():
         recs.append(asst([tool_use("Bash", f"e{i}", command="fail")]))
         recs.append(result(f"e{i}", "err", err=True))
     s = analyze(write_fixture(recs))
-    assert score(s, pick_buffs(s)) == 0
+    core_buffs = [b for b in pick_buffs(s) if b[1] != "flavor"]  # tz-independent
+    assert score(s, core_buffs) == 0
+    # flavor may still add flat points on a floored core — comedy survives failure
+
+
+def _min_s(**over):
+    s = {"session_id": "x", "transcript_sha": "0" * 64, "models": {}, "efforts": {},
+         "tools": {}, "green": 0, "red": 0, "longest_streak": 0, "worst_spiral": 0,
+         "interruptions": 0, "compactions": 0, "first_tally": None, "last_tally": None,
+         "first_ts": None, "last_ts": None, "user_prompts": 0, "tokens_in": 0,
+         "tokens_out": 0, "yolo_mode": False, "plan_entries": 0, "overloads": 0,
+         "longest_cook": 0, "night_events": 0, "worst_doom_loop": 0,
+         "clean_window_chain": 0}
+    s.update(over)
+    return s
+
+
+def test_superlinear_streak():
+    lo = score(_min_s(green=30, longest_streak=10), [])
+    hi = score(_min_s(green=30, longest_streak=100), [])
+    # 10x the streak must be worth far more than 10x the streak points
+    assert hi - 300 == 1000 and lo - 300 == 31, (lo, hi)
+    assert hi - 300 > 10 * (lo - 300)
+
+
+def test_streak_cap():
+    assert score(_min_s(longest_streak=100), []) == score(_min_s(longest_streak=5000), [])
+
+
+def test_chain_product_cap():
+    buffs = [(f"c{i}", "chain", 2.0, "") for i in range(5)]  # raw product 32
+    assert score(_min_s(green=10), buffs) == int(100 * 6.0)  # capped at 6
+
+
+def test_flavor_adds_never_multiplies():
+    base = score(_min_s(green=10), [])
+    with_flavor = score(_min_s(green=10), [("f", "flavor", 200, "")])
+    assert with_flavor == base + 200
+    # flavor on a zero-base session still shows up (comedy survives failure)
+    assert score(_min_s(red=50), [("f", "flavor", 200, "")]) == 200
+
+
+def test_debuff_bites_chains():
+    buffs = [("c", "chain", 2.0, ""), ("d", "debuff", 0.5, "")]
+    assert score(_min_s(green=10), buffs) == 100
+
+
+def test_clean_window_chain_superlinear():
+    s3 = score(_min_s(clean_window_chain=3), [])
+    s9 = score(_min_s(clean_window_chain=9), [])
+    # 3x the sustained chain must be worth much more than 3x the points
+    assert s9 > 3 * s3, (s3, s9)
+
+
+def test_clean_window_chain_from_transcript():
+    recs = [prompt(ts="2026-08-19T10:00:00.000Z")]
+    n = 0
+    for w in range(3):          # 3 consecutive 20-min windows, 6 green events each
+        for i in range(6):
+            n += 1
+            ts = f"2026-08-19T10:{w*20 + i*3:02d}:01.000Z"
+            recs.append(asst([tool_use("Bash", f"w{n}", command=f"s{n}")], ts=ts))
+            recs.append(result(f"w{n}", "ok", ts=ts))
+    s = analyze(write_fixture(recs))
+    assert s["clean_window_chain"] == 3, s["clean_window_chain"]
+    assert "THE LONG GAME" in buff_names(s)
+
+
+def test_window_chain_broken_by_error():
+    recs = [prompt(ts="2026-08-19T10:00:00.000Z")]
+    n = 0
+    for w in range(3):
+        for i in range(6):
+            n += 1
+            ts = f"2026-08-19T10:{w*20 + i*3:02d}:01.000Z"
+            err = (w == 1 and i == 2)   # one error in the middle window
+            recs.append(asst([tool_use("Bash", f"w{n}", command=f"s{n}")], ts=ts))
+            recs.append(result(f"w{n}", "err" if err else "ok", err=err, ts=ts))
+    s = analyze(write_fixture(recs))
+    assert s["clean_window_chain"] == 1, s["clean_window_chain"]
+
+
+def test_fingerprint_binds_transcript():
+    recs = [prompt(), asst([tool_use("Bash", "t", command="ls")]), result("t", "ok")]
+    a = analyze(write_fixture(recs))
+    b = analyze(write_fixture(recs + [prompt("one more")]))
+    assert a["transcript_sha"] != b["transcript_sha"]
+    assert a["transcript_sha"][:12] in render_html(a, pick_buffs(a), 1)
+
+
+def test_cook_resets_on_error():
+    recs = [prompt()]
+    for i in range(30):
+        recs.append(asst([tool_use("Bash", f"a{i}", command=f"s{i}")]))
+        recs.append(result(f"a{i}", "ok"))
+    recs.append(asst([tool_use("Bash", "boom", command="x")]))
+    recs.append(result("boom", "err", err=True))
+    for i in range(20):
+        recs.append(asst([tool_use("Bash", f"b{i}", command=f"t{i}")]))
+        recs.append(result(f"b{i}", "ok"))
+    s = analyze(write_fixture(recs))
+    assert s["longest_cook"] == 30, s["longest_cook"]   # error broke the chain
+
+
+def test_streak_chain_group_exclusive():
+    # zero-error session: ONE-SHOT WONDER must suppress FLOW STATE/Clean Streak
+    recs = [prompt()]
+    for i in range(30):
+        recs.append(asst([tool_use("Bash", f"g{i}", command=f"s{i}")]))
+        recs.append(result(f"g{i}", "ok"))
+    names = buff_names(analyze(write_fixture(recs)))
+    assert "ONE-SHOT WONDER" in names
+    assert "FLOW STATE" not in names and "Clean Streak" not in names
+
+
+def test_sparse_windows_reset_chain():
+    # clean window, then 2 empty windows, then clean window -> chain must be 1, not 2
+    recs = [prompt(ts="2026-08-19T10:00:00.000Z")]
+    n = 0
+    for w in (0, 3):   # windows 1 and 2 are silent
+        for i in range(6):
+            n += 1
+            ts = f"2026-08-19T{10 + (w*20 + i*3)//60}:{(w*20 + i*3) % 60:02d}:01.000Z"
+            recs.append(asst([tool_use("Bash", f"w{n}", command=f"s{n}")], ts=ts))
+            recs.append(result(f"w{n}", "ok", ts=ts))
+    s = analyze(write_fixture(recs))
+    assert s["clean_window_chain"] == 1, s["clean_window_chain"]
+
+
+def test_meta_injection_sanitized():
+    recs = [prompt(),
+            asst([tool_use("Bash", "t", command="ls")],
+                 model="claude-x<script>alert(1)</script>"),
+            result("t", "ok")]
+    s = analyze(write_fixture(recs))
+    html = render_html(s, pick_buffs(s), 1)
+    assert "<script>" not in html
+    assert "claude-xscriptalert1script" in html  # stripped, not dropped
 
 
 def test_cli_smoke():
