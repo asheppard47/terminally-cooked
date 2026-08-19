@@ -215,6 +215,21 @@ def analyze(path):
     return s
 
 
+# Badge glyphs: terminal-native monochrome codepoints, never emoji — the card
+# is a diff, not a Duolingo streak. Paired arrows are deliberate: ↻ Doom Loop
+# (repeating the same thing), ↺ Error Spiral (spinning backwards).
+ICONS = {
+    "ONE-SHOT WONDER": "◎", "FLOW STATE": "≋", "Clean Streak": "⇉",
+    "LET IT COOK": "♨", "THE LONG GAME": "♟",
+    "Red Wedding": "☠", "Error Spiral": "↺", "Doom Loop": "↻",
+    "Backseat Driver": "‼", "All Plan No Game": "☰", "Twenty Questions": "¿",
+    "Third Time's the Charm": "☘", "Overloaded": "⏻",
+    "YOLO MODE": "»", "Token Bonfire": "🜂", "Night Shift": "☾",
+    "Marathon": "∞", "Test Whisperer": "✓", "Speedrun": "↯",
+    "Middle Manager": "⑂", "Lost the Tapes": "⌫", "Model Hopper": "⇄",
+    "Bookworm": "¶", "Perfectly Balanced": "≍",
+}
+
 SAFE_META_RE = re.compile(r"[^A-Za-z0-9._+\- ]")
 
 
@@ -387,13 +402,14 @@ def render(s, buffs, final):
         out.append(C.dim(f"  tokens: {s['tokens_in']/1e6:,.1f}M in · {s['tokens_out']/1e6:,.2f}M out"))
     out.append(C.dim("├" + line + "┤"))
     for name, kind, value, why in buffs:
+        glyph = ICONS.get(name, "·")
         if kind == "flavor":
             tag = C.dim(f"+{value}")
         elif value >= 1:
             tag = C.green(f"×{round(value, 2)}")
         else:
             tag = C.red(f"×{value}")
-        out.append(f"  {C.bold(name):<38} {tag}  {C.dim(why)}")
+        out.append(f"  {C.yellow(glyph) if kind == 'chain' else C.dim(glyph)} {C.bold(name):<38} {tag}  {C.dim(why)}")
     out.append(C.dim("├" + line + "┤"))
     core, flat = score_parts(s, buffs)
     out.append(C.bold(f"  FINAL: {C.yellow(f'+{final:,}')}")
@@ -420,12 +436,16 @@ def render_html(s, buffs, final):
     efforts = meta_names(s["efforts"])
     total = s["green"] + s["red"]
     pct = round(100 * s["green"] / total) if total else 0
-    rows = "".join(
-        f'<div class="buff"><span class="name">{name}</span>'
-        + (f'<span class="mult flat">+{value}</span>' if kind == "flavor"
-           else f'<span class="mult {"up" if value >= 1 else "down"}">&times;{round(value, 2)}</span>')
-        + f'<span class="why">{why}</span></div>'
-        for name, kind, value, why in buffs)
+    def chip(name, kind, value, why):
+        glyph = ICONS.get(name, "·")
+        tag = (f"+{value}" if kind == "flavor" else f"&times;{round(value, 2)}")
+        return (f'<div class="badge {kind}"><span class="tile">{glyph}</span>'
+                f'<span class="bmeta"><span class="brow"><span class="bname">{name}</span>'
+                f'<span class="btag">{tag}</span></span>'
+                f'<span class="bwhy">{why}</span></span></div>')
+    rows = ('<div class="badges">'
+            + "".join(chip(*b) for b in buffs)
+            + '</div>')
     tally = ""
     if s["first_tally"] and s["last_tally"]:
         ft, lt = s["first_tally"], s["last_tally"]
@@ -436,6 +456,7 @@ def render_html(s, buffs, final):
         tokens = f'<div class="meta">tokens: {s["tokens_in"]/1e6:,.1f}M in &middot; {s["tokens_out"]/1e6:,.2f}M out</div>'
     core, flat = score_parts(s, buffs)
     return f"""<!-- llm-grader shareable card -->
+<meta charset="utf-8">
 <div style="max-width:560px">
 <style>
 .lg-card{{font-family:'SF Mono',Menlo,monospace;background:#0d1117;color:#c9d1d9;border:1px solid #30363d;border-radius:10px;padding:20px 24px;font-size:13px;line-height:1.7}}
@@ -444,9 +465,21 @@ def render_html(s, buffs, final):
 .lg-card .fever i{{display:block;height:100%;width:{pct}%;background:#3fb950}}
 .lg-card .counts{{margin:4px 0}}.lg-card .g{{color:#3fb950}}.lg-card .r{{color:#f85149}}.lg-card .y{{color:#d29922}}
 .lg-card .diff{{margin:8px 0}}.lg-card .rm{{color:#f85149}}.lg-card .add{{color:#3fb950}}
-.lg-card .buff{{display:flex;gap:10px;align-items:baseline;margin:3px 0}}
-.lg-card .name{{font-weight:700;min-width:170px;color:#e6edf3}}
-.lg-card .mult.up{{color:#3fb950}}.lg-card .mult.down{{color:#f85149}}.lg-card .mult.flat{{color:#8b949e}}
+.lg-card .badges{{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px;margin:12px 0 4px}}
+.lg-card .badge{{display:flex;gap:9px;align-items:center;border:1px solid #30363d;border-radius:7px;padding:7px 9px;background:#161b22}}
+.lg-card .badge .tile{{flex:none;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:15px;border:1px solid #30363d;border-radius:6px;background:#0d1117;color:#8b949e}}
+.lg-card .badge.chain{{border-color:#9e7c27;box-shadow:0 0 10px rgba(210,153,34,.18)}}
+.lg-card .badge.chain .tile{{color:#d29922;border-color:#9e7c27}}
+.lg-card .badge.chain .btag{{color:#d29922}}
+.lg-card .badge.debuff{{border-color:#6e2c2f}}
+.lg-card .badge.debuff .tile{{color:#f85149;border-color:#6e2c2f}}
+.lg-card .badge.debuff .btag{{color:#f85149}}
+.lg-card .badge.flavor .btag{{color:#8b949e}}
+.lg-card .bmeta{{min-width:0;display:flex;flex-direction:column;gap:1px;flex:1}}
+.lg-card .brow{{display:flex;justify-content:space-between;gap:8px;align-items:baseline}}
+.lg-card .bname{{font-weight:700;color:#e6edf3;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+.lg-card .btag{{font-weight:700;font-size:12px}}
+.lg-card .bwhy{{color:#8b949e;font-size:10.5px;line-height:1.4}}
 .lg-card .why{{color:#8b949e;font-size:12px}}
 .lg-card .final{{margin-top:14px;border-top:1px solid #30363d;padding-top:10px;font-size:17px;color:#d29922;font-weight:700}}
 .lg-card .fine{{color:#484f58;font-size:11px}}
