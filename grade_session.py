@@ -69,13 +69,25 @@ def analyze(path):
         "plan_entries": 0,
         "overloads": 0,
         "longest_cook": 0,
+        "night_events": 0,
+        "worst_doom_loop": 0,
     }
     streak = spiral = cook = 0
+    pending_bash = {}   # tool_use id -> command string (never rendered)
+    last_failed_cmd, doom_run = None, 0
     for rec in iter_records(path):
         ts = rec.get("timestamp")
         if ts:
             s["first_ts"] = s["first_ts"] or ts
             s["last_ts"] = ts
+            try:
+                hour = datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone().hour
+                if 2 <= hour < 6:
+                    s["night_events"] += 1
+            except ValueError:
+                pass
+        if rec.get("isCompactSummary"):
+            s["compactions"] += 1
         rtype = rec.get("type")
         if rtype == "permission-mode":
             mode = str(rec.get("permissionMode", ""))
@@ -102,6 +114,10 @@ def analyze(path):
                     s["tools"][name] = s["tools"].get(name, 0) + 1
                     cook += 1
                     s["longest_cook"] = max(s["longest_cook"], cook)
+                    if name == "Bash":
+                        cmd = (block.get("input") or {}).get("command")
+                        if isinstance(cmd, str):
+                            pending_bash[block.get("id")] = cmd.strip()
         elif rtype == "user":
             content = (rec.get("message") or {}).get("content")
             if isinstance(content, str):
@@ -123,15 +139,22 @@ def analyze(path):
                 if block.get("type") != "tool_result":
                     continue
                 saw_tool_result = True
+                cmd = pending_bash.pop(block.get("tool_use_id"), None)
                 if block.get("is_error"):
                     s["red"] += 1
                     if OVERLOAD_RE.search(tool_result_text(block)):
                         s["overloads"] += 1
+                    if cmd is not None:
+                        doom_run = doom_run + 1 if cmd == last_failed_cmd else 1
+                        last_failed_cmd = cmd
+                        s["worst_doom_loop"] = max(s["worst_doom_loop"], doom_run)
                     spiral += 1
                     s["worst_spiral"] = max(s["worst_spiral"], spiral)
                     streak = 0
                 else:
                     s["green"] += 1
+                    if cmd is not None:
+                        last_failed_cmd, doom_run = None, 0
                     streak += 1
                     s["longest_streak"] = max(s["longest_streak"], streak)
                     spiral = 0
@@ -142,8 +165,6 @@ def analyze(path):
                     s["last_tally"] = tally
             if not saw_tool_result:
                 s["user_prompts"] += 1
-        elif rtype == "system" and "compact" in str(rec.get("subtype", "")).lower():
-            s["compactions"] += 1
     return s
 
 
@@ -199,6 +220,10 @@ def pick_buffs(s):
         buffs.append(("All Plan No Game", 0.8, f"entered plan mode {s['plan_entries']}x, edited nothing"))
     if s["overloads"] >= 1:
         buffs.append(("Overloaded", 0.9, f"the API said no, {s['overloads']}x (rare)"))
+    if s["worst_doom_loop"] >= 3:
+        buffs.append(("Doom Loop", 0.7, f"same command, same failure, {s['worst_doom_loop']}x in a row"))
+    if s["night_events"] >= 10:
+        buffs.append(("Night Shift", 1.2, "real work happening between 2 and 6 am"))
     reads, bashes = tools.get("Read", 0), tools.get("Bash", 0)
     if reads >= 20 and reads > bashes:
         buffs.append(("Bookworm", 1.0, f"read {reads} files, touched grass never"))
@@ -282,6 +307,57 @@ def render(s, buffs, final):
     return "\n".join(out)
 
 
+def render_html(s, buffs, final):
+    """Standalone shareable card. Same field allowlist as the ANSI card."""
+    mins = duration_minutes(s)
+    dur = f"{mins // 60}h {mins % 60}m" if mins else "unknown"
+    date = (s["first_ts"] or "")[:10]
+    models = ", ".join(sorted(s["models"], key=s["models"].get, reverse=True))
+    efforts = ", ".join(sorted(s["efforts"], key=s["efforts"].get, reverse=True))
+    total = s["green"] + s["red"]
+    pct = round(100 * s["green"] / total) if total else 0
+    rows = "".join(
+        f'<div class="buff"><span class="name">{name}</span>'
+        f'<span class="mult {"up" if mult >= 1 else "down"}">&times;{mult}</span>'
+        f'<span class="why">{why}</span></div>'
+        for name, mult, why in buffs)
+    tally = ""
+    if s["first_tally"] and s["last_tally"]:
+        ft, lt = s["first_tally"], s["last_tally"]
+        tally = (f'<div class="diff"><div class="rm">- # {ft[0]} passed, {ft[1]} failed</div>'
+                 f'<div class="add">+ # {lt[0]} passed, {lt[1]} failed</div></div>')
+    tokens = ""
+    if s["tokens_in"] or s["tokens_out"]:
+        tokens = f'<div class="meta">tokens: {s["tokens_in"]/1e6:,.1f}M in &middot; {s["tokens_out"]/1e6:,.2f}M out</div>'
+    return f"""<!-- llm-grader shareable card -->
+<div style="max-width:560px">
+<style>
+.lg-card{{font-family:'SF Mono',Menlo,monospace;background:#0d1117;color:#c9d1d9;border:1px solid #30363d;border-radius:10px;padding:20px 24px;font-size:13px;line-height:1.7}}
+.lg-card h1{{font-size:15px;margin:0;color:#e6edf3}}.lg-card .meta{{color:#8b949e;font-size:12px}}
+.lg-card .fever{{height:10px;border-radius:5px;background:#f85149;overflow:hidden;margin:12px 0}}
+.lg-card .fever i{{display:block;height:100%;width:{pct}%;background:#3fb950}}
+.lg-card .counts{{margin:4px 0}}.lg-card .g{{color:#3fb950}}.lg-card .r{{color:#f85149}}.lg-card .y{{color:#d29922}}
+.lg-card .diff{{margin:8px 0}}.lg-card .rm{{color:#f85149}}.lg-card .add{{color:#3fb950}}
+.lg-card .buff{{display:flex;gap:10px;align-items:baseline;margin:3px 0}}
+.lg-card .name{{font-weight:700;min-width:170px;color:#e6edf3}}
+.lg-card .mult.up{{color:#3fb950}}.lg-card .mult.down{{color:#f85149}}
+.lg-card .why{{color:#8b949e;font-size:12px}}
+.lg-card .final{{margin-top:14px;border-top:1px solid #30363d;padding-top:10px;font-size:17px;color:#d29922;font-weight:700}}
+.lg-card .fine{{color:#484f58;font-size:11px}}
+</style>
+<div class="lg-card">
+<h1>LLM GRADER</h1>
+<div class="meta">session {s['session_id'][:8]} &middot; {date} &middot; {dur} &middot; {models} &middot; effort: {efforts}</div>
+<div class="fever"><i></i></div>
+<div class="counts"><span class="g">+{s['green']} green results</span> &nbsp; <span class="r">-{s['red']} errors</span> &nbsp; <span class="y">streak {s['longest_streak']}</span></div>
+{tally}{tokens}
+{rows}
+<div class="final">+{final:,} <span class="fine">(means nothing. share it anyway.)</span></div>
+<div class="fine">{SCORING_VERSION}</div>
+</div></div>
+"""
+
+
 def find_session(arg):
     if arg and Path(arg).exists():
         return Path(arg)
@@ -299,11 +375,18 @@ def find_session(arg):
 def main():
     ap = argparse.ArgumentParser(description="Grade a Claude Code session into a comedy results card (local-only, zero-upload).")
     ap.add_argument("session", nargs="?", help="Path to a session .jsonl, a session-uuid prefix, or omit for the most recent session")
+    ap.add_argument("--html", nargs="?", const="", metavar="OUT",
+                    help="Also write a shareable standalone HTML card (default: ./llm-grader-card-<id>.html)")
     args = ap.parse_args()
     path = find_session(args.session)
     s = analyze(path)
     buffs = pick_buffs(s)
-    print(render(s, buffs, score(s, buffs)))
+    final = score(s, buffs)
+    print(render(s, buffs, final))
+    if args.html is not None:
+        out = Path(args.html) if args.html else Path(f"llm-grader-card-{s['session_id'][:8]}.html")
+        out.write_text(render_html(s, buffs, final))
+        print(f"\nhtml card: {out.resolve()}")
 
 
 if __name__ == "__main__":
