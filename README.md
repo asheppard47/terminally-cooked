@@ -1,32 +1,41 @@
 # LLM Grader
 
-Grade one of your own Claude Code sessions into a comedy results card, rendered
-in the hypnotic red/green terminal-diff aesthetic. Local-only, zero-upload:
-reads the session transcript already on your disk, computes raw observable
-counts (green/red tool results, streaks, test-tally deltas), attaches comedy
-buffs/debuffs, and prints an ANSI card. The score is entertainment and says so
-on the card.
+Grade one of your own Claude Code sessions into a comedy results card, rendered in
+the red/green diff-counter aesthetic. Local-only, zero-upload: it reads the session
+transcript already on your disk, counts what happened, attaches named achievements,
+and prints a card. The score is entertainment and says so.
 
 ```bash
 python3 grade_session.py            # grade your most recent session
 python3 grade_session.py a3a4d4fb   # grade by session-uuid prefix
 python3 grade_session.py path/to/session.jsonl
+python3 grade_session.py --html     # also write a shareable HTML card
+python3 test_grade_session.py       # 24 tests
 ```
 
-## Privacy contract (permanent)
+## Documentation
 
-- Nothing leaves the machine. No network calls exist in this codebase.
-- Card fields are allowlisted: session-uuid prefix, date, duration, model and
-  effort names, event counts, buff names, score. No cwd, repo names, branch
-  names, file paths, prompt text, or tool output ever reaches the card.
-- Sharing a card is something the player does themselves, never the tool.
+**[INDEX.md](./INDEX.md) is the doc tree** — start there. Sections:
+
+| Section | What it owns |
+|---|---|
+| [docs/product/](./docs/product/INDEX.md) | Concept, privacy contract, decision log |
+| [docs/design/](./docs/design/INDEX.md) | Scoring model, modifier catalog, card spec |
+| [docs/art/](./docs/art/INDEX.md) | Badge style guide, production pipeline, voting protocol |
+| [docs/engineering/](./docs/engineering/INDEX.md) | Architecture, transcript observables, testing |
+| [docs/research/](./docs/research/INDEX.md) | External review ledgers, audience research |
+
+## Privacy contract
+
+Nothing leaves the machine. No network code exists in this repo. Card fields are
+allowlisted — no prompt text, file paths, repo names, or tool output — and a test
+enforces it. Sharing a card is something you do, never something the tool does.
+Full contract: [docs/product/privacy-contract.md](./docs/product/privacy-contract.md).
 
 ## Status
 
-V1 prototype (2026-08-18). Concept SSOT + design/review history:
-`~/repos/personal/Game Dev/learning/llm-grader-concept.md`.
-Godot 4.x pinning: not applicable — this is a terminal tool, no engine.
-
-Known couplings: parses Claude Code's internal transcript JSONL format
-(`~/.claude/projects/*/<uuid>.jsonl`), which can change between Claude Code
-versions. Tally detection matches `N passed[, M failed]` output and fails open.
+V1 prototype, scoring v0.4, 24 modifiers, 24 tests green. Badge art is rendered and
+out for a blind vote; persistent badges and public release are not built.
+Known coupling: Claude Code's internal transcript JSONL format, which can change
+between versions — see
+[docs/engineering/transcript-observables.md](./docs/engineering/transcript-observables.md).
