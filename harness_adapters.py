@@ -386,3 +386,51 @@ def iter_events(path, harness=None):
     if harness not in ADAPTERS:
         raise ValueError(f"unrecognized session format: {path}")
     return ADAPTERS[harness](path)
+
+
+def session_mtime(path):
+    p = Path(path)
+    if p.is_dir():
+        for name in ("events.jsonl", "updates.jsonl", "summary.json"):
+            f = p / name
+            if f.exists():
+                return f.stat().st_mtime
+    if p.exists():
+        return p.stat().st_mtime
+    return 0
+
+
+def session_bytes(path):
+    p = Path(path)
+    if p.is_dir():
+        total = 0
+        for name in ("events.jsonl", "updates.jsonl"):
+            f = p / name
+            if f.exists():
+                total += f.stat().st_size
+        return total
+    return p.stat().st_size if p.exists() else 0
+
+
+def list_sessions(home=None, claude_projects=None):
+    """Local session records for every supported harness. Dirs for Grok, files otherwise."""
+    home = Path(home or Path.home())
+    found = []
+    claude = Path(claude_projects) if claude_projects else home / ".claude" / "projects"
+    if claude.is_dir():
+        found.extend(claude.glob("*/*.jsonl"))
+    grok = home / ".grok" / "sessions"
+    if grok.is_dir():
+        for summary in grok.rglob("summary.json"):
+            d = summary.parent
+            if "subagents" in d.parts:
+                continue
+            if (d / "events.jsonl").exists() or (d / "updates.jsonl").exists():
+                found.append(d)
+    codex = home / ".codex" / "sessions"
+    if codex.is_dir():
+        found.extend(codex.glob("*/*/*/rollout-*.jsonl"))
+    gemini = home / ".gemini" / "tmp"
+    if gemini.is_dir():
+        found.extend(gemini.glob("*/chats/session-*.jsonl"))
+    return found
