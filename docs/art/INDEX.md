@@ -4,7 +4,7 @@ schema_version: 2
 title: "Art — Badge Visual System"
 doc_type: index
 parent: ../../INDEX.md
-last_updated: 2026-08-19
+last_updated: 2026-08-20
 last_audit: 2026-08-19
 audit_status: current
 domain: docs
@@ -29,4 +29,4 @@ Painterly splash art with luminous, saturated color; one central subject with a 
 
 ## Asset location
 
-Masters, derivatives, prompts, comparison composites and pipeline scripts live on the Mini scratch volume at `/Volumes/WD Black (2TB)/Game Dev/scratch/llm-grader/badge-art/` per the workshop storage rule. Only the winning derivatives are promoted into this repo once the vote closes.
+Winning 32 px and 72 px derivatives ship in `assets/badges/` and are inlined into the HTML card as data URIs. Masters, prompts, losing renders, and pipeline scripts stay out of this repo. To regenerate, follow [production-pipeline.md](./production-pipeline.md) against a local scratch directory; do not add network fetches to the grading path.

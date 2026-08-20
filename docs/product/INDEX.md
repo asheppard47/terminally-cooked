@@ -1,10 +1,10 @@
 ---
 version: "1.0.0"
 schema_version: 2
-title: "Product — LLM Grader"
+title: "Product — Terminally Cooked"
 doc_type: index
 parent: ../../INDEX.md
-last_updated: 2026-08-19
+last_updated: 2026-08-20
 last_audit: 2026-08-19
 audit_status: current
 domain: docs
@@ -15,7 +15,7 @@ triggers:
 ---
 # Product
 
-**This section owns why LLM Grader exists, who it is for, what it promises, and which directions were deliberately closed.** Behavior specs live in [design/](../design/INDEX.md); implementation lives in [engineering/](../engineering/INDEX.md).
+**This section owns why Terminally Cooked exists, who it is for, what it promises, and which directions were deliberately closed.** Behavior specs live in [design/](../design/INDEX.md); implementation lives in [engineering/](../engineering/INDEX.md).
 
 | Doc | Answers |
 |---|---|
@@ -25,4 +25,4 @@ triggers:
 
 ## The one-paragraph pitch
 
-Developers who run AI coding agents already stare at a hypnotic stream of red and green — failing and passing counts ticking up a diff at a time. LLM Grader turns one session of that into a scorecard: it reads the transcript already sitting on your disk, counts the greens, the errors, the streaks and the retries, and hands back named achievements — FLOW STATE for an unbroken run, DOOM LOOP for running the same failing command three times, YOLO MODE for the people who disable confirmation prompts. The number at the bottom means nothing, which is the joke; the recognition is the product.
+Developers who run AI coding agents already stare at a hypnotic stream of red and green — failing and passing counts ticking up a diff at a time. Terminally Cooked turns one session of that into a scorecard: it reads the transcript already sitting on your disk, counts the greens, the errors, the streaks and the retries, and hands back named achievements — FLOW STATE for an unbroken run, DOOM LOOP for running the same failing command three times, YOLO MODE for the people who disable confirmation prompts. The number at the bottom means nothing, which is the joke; the recognition is the product.

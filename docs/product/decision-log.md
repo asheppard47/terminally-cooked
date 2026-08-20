@@ -4,7 +4,7 @@ schema_version: 2
 title: "Decision Log"
 doc_type: detail
 parent: INDEX.md
-last_updated: 2026-08-19
+last_updated: 2026-08-20
 last_audit: 2026-08-19
 audit_status: current
 domain: docs
@@ -37,15 +37,18 @@ triggers:
 | D13 | 2026-08-20 | **Subagent work is never imputed.** Sessions with subagent calls print a delegation class ("internals not graded"). Weighting Agent calls by duration or tokens fabricates precision about invisible work. | Publish-review wave (Sol #3 over Flash #2) |
 | D14 | 2026-08-20 | **Share-to-X is caption-to-clipboard plus a blank composer.** No prefilled intent URLs and no upload APIs — both transmit the score before the user posts. The `--share` flag copies a caption from allowlisted fields and opens the composer; the user pastes. | Publish-review wave (Sol #16 over Flash #8) |
 | D15 | 2026-08-20 | **Anti-cheat posture for publication: "self-attested, reproducible locally, not authenticated."** The recompute stamp stays; HMAC slugs with a public salt were rejected as forgeable theater. Honest reproduction is made cheap (published source, tagged releases) rather than pretending provenance. | Publish-review wave (Sol #12-13; Flash #7 rejected) |
-| D16 | 2026-08-20 | **Public claim stays "Claude Code main-session transcripts."** The product does not claim to cover all LLM-assisted coding; other tools are future ingestion adapters, each needing its own session-unit mapping. | Publish-review wave (both reviewers) |
+| D16 | 2026-08-20 | **V1 public claim was Claude Code main-session transcripts.** Other tools were future ingestion adapters, each needing its own session-unit mapping. Amended by D17 the same day once vendor-model adapter designs landed. | Publish-review wave (both reviewers) |
+| D17 | 2026-08-20 | **Four harnesses, one event contract.** Claude Code, Codex, Grok, and Gemini CLI are auto-detected from file shape. Cards stamp the adapter. Cross-harness scores are different games and say so. Unknown tool outcomes never fill a "clean" window. | Vendor-model adapter wave + validation repairs |
+| D18 | 2026-08-20 | **Public MIT source is the anti-cheat.** Scoring is self-attested and reproducible locally (D15). The repo is public so anyone can recompute a card. Badge PNGs ship in the clone and are inlined as data URIs — grading must never hit the network. | Owner publication directives |
+| D19 | 2026-08-20 | **Public name is Terminally Cooked — An AI Coding Session Roast.** GitHub slug `terminally-cooked`. Working title LLM Grader retired (collides with a student-work grader and claims measurement). Promptmortem rejected on uniqueness (`promptmortem.ai` is the same audience). RoastDiff rejected as roast-your-diffs category confusion. Council record: local `council_llm_grader_name_20260820.md`. | Council (sol × 3 personae) + naming-playbook collision screen |
 
 ## Open questions
 
 | Question | Status | Blocking |
 |---|---|---|
-| Which model's art ships per badge | Vote live in the Gentlemen Unicorn group, 24 matchups posted 2026-08-19 | Icon integration into the card |
+| Which model's art ships per badge | Round 1 closed 2026-08-20; winners in `assets/badges/` — sample size is three voters, 2–1 splits are thin | Not blocking ship |
 | Persistent badges and a local history file | Deliberately unbuilt; audience research says session-scoped roasts are welcome and lifetime counters are mocked | Needs a history schema allowlist + idempotency tests first |
-| Public release and naming | Not started; working name only | Name screening via the workshop naming playbook |
+| Public display name vs repo slug | **Closed 2026-08-20 (D19):** Terminally Cooked — An AI Coding Session Roast; GitHub `asheppard47/terminally-cooked`. Working title LLM Grader retired. | — |
 | Marketing and recognition lane | Designed as card-level only; waits for users | Real users |
 
 ## Reversal conditions

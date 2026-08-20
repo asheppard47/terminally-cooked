@@ -4,7 +4,7 @@ schema_version: 2
 title: "Research and Evidence"
 doc_type: index
 parent: ../../INDEX.md
-last_updated: 2026-08-19
+last_updated: 2026-08-20
 last_audit: 2026-08-19
 audit_status: current
 domain: docs
@@ -21,9 +21,9 @@ triggers:
 |---|---|
 | [review-ledgers.md](./review-ledgers.md) | What did external reviewers find, and what was accepted or rejected? |
 
-## Audience research (external capsule)
+## Audience research
 
-The X sweep of 2026-08-18 lives in the workshop repo with per-claim post URLs: `~/repos/personal/Game Dev/learning/research_x_ai_cli_culture_2026-08-18.md`. Headlines that shaped this product:
+A 2026-08-18 X sweep of AI-coding-CLI culture shaped the catalog. Per-claim post URLs live in private workshop notes, not this repo. Headlines that shaped this product:
 
 - **Mocked**: streak-chasing, contribution graphs as proof of skill, and leaderboards. One reported case of an internal AI-coding leaderboard producing farmed busywork before being scrapped.
 - **Embraced**: Wrapped-style shareable recap cards and low-stakes joke achievements, shared unironically.

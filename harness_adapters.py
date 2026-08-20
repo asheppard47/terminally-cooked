@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Harness adapters: route-by-harness session ingestion for LLM Grader.
+"""Harness adapters: route-by-harness session ingestion for Terminally Cooked.
 
 Each adapter reads LOCAL files only and normalizes a session into the shared
 event contract consumed by grade_session.analyze_events(). Detection is
