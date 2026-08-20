@@ -584,6 +584,7 @@ def _grok_sess(home, sid, n_green, start, minutes, mtime):
         "%Y-%m-%dT%H:%M:%S.000Z")
     _write(d / "events.jsonl", recs)
     os.utime(d / "events.jsonl", (mtime, mtime))
+    os.utime(d / "summary.json", (mtime, mtime))
     return d
 
 
@@ -598,7 +599,7 @@ def test_pick_skips_live_even_when_live_is_juicier():
     alt = _grok_sess(home, "alt00000-0000-7000-8000-000000000002",
                      n_green=20, start=today - timedelta(minutes=90),
                      minutes=30, mtime=now.timestamp() - 3600)
-    picked, note = pick_juicy_session(home=home, now=now)
+    picked, note = pick_juicy_session(home=home, now=now, live_ids=[])
     assert picked.resolve() == alt.resolve(), (picked, note)
     assert "live" in note and "alt00000" in note
 
@@ -615,7 +616,7 @@ def test_pick_falls_back_when_today_is_only_live():
     old = _grok_sess(home, "old00000-0000-7000-8000-000000000003",
                      n_green=40, start=last_week, minutes=50,
                      mtime=(last_week).timestamp())
-    picked, note = pick_juicy_session(home=home, now=now)
+    picked, note = pick_juicy_session(home=home, now=now, live_ids=[])
     assert picked.resolve() == old.resolve(), (picked, note)
 
 
@@ -633,8 +634,82 @@ def test_pick_prefers_longer_session_over_one_minute_blitz():
     haul = _grok_sess(home, "haul0000-0000-7000-8000-000000000005",
                       n_green=12, start=today - timedelta(hours=3),
                       minutes=40, mtime=now.timestamp() - 7200)
-    picked, note = pick_juicy_session(home=home, now=now)
+    picked, note = pick_juicy_session(home=home, now=now, live_ids=[])
     assert picked.resolve() == haul.resolve(), (picked, note)
+
+
+def test_pick_skips_invoker_even_when_not_newest():
+    """The live session is identified by id, not by being the newest file."""
+    from datetime import timedelta
+    from grade_session import pick_juicy_session
+    home = Path(tempfile.mkdtemp())
+    now = datetime.now(timezone.utc)
+    today = now.replace(hour=12, minute=0, second=0, microsecond=0)
+    other = _grok_sess(home, "other000-0000-7000-8000-000000000006",
+                       n_green=20, start=today, minutes=30, mtime=now.timestamp())
+    invoker = _grok_sess(home, "invoke00-0000-7000-8000-000000000007",
+                         n_green=80, start=today - timedelta(minutes=20),
+                         minutes=40, mtime=now.timestamp() - 60)
+    picked, note = pick_juicy_session(
+        home=home, now=now, live_ids=["invoke00-0000-7000-8000-000000000007"])
+    assert picked.resolve() == other.resolve(), (picked, note)
+    assert "invoke00" in note
+
+
+def test_grok_session_mtime_uses_newest_file():
+    import os
+    from harness_adapters import session_mtime
+    home = Path(tempfile.mkdtemp())
+    now = datetime.now(timezone.utc)
+    d = _grok_sess(home, "mtime000-0000-7000-8000-000000000008",
+                   n_green=2, start=now, minutes=5, mtime=1000)
+    (d / "updates.jsonl").write_text("{}\n")
+    os.utime(d / "events.jsonl", (1000, 1000))
+    os.utime(d / "updates.jsonl", (5000, 5000))
+    assert session_mtime(d) == 5000
+
+
+def test_grok_fingerprint_includes_updates():
+    from grade_session import analyze
+    home = Path(tempfile.mkdtemp())
+    now = datetime.now(timezone.utc)
+    d = _grok_sess(home, "hash0000-0000-7000-8000-000000000009",
+                   n_green=2, start=now, minutes=5, mtime=now.timestamp())
+    (d / "updates.jsonl").write_text(
+        json.dumps({"sessionUpdate": "turn_completed",
+                    "usage": {"inputTokens": 10, "outputTokens": 1}}) + "\n")
+    a = analyze(d)
+    (d / "updates.jsonl").write_text(
+        json.dumps({"sessionUpdate": "turn_completed",
+                    "usage": {"inputTokens": 99, "outputTokens": 1}}) + "\n")
+    b = analyze(d)
+    assert a["tokens_in"] != b["tokens_in"]
+    assert a["transcript_sha"] != b["transcript_sha"]
+
+
+def test_list_sessions_skips_codex_subagents():
+    import os
+    from harness_adapters import list_sessions
+    home = Path(tempfile.mkdtemp())
+    d = Path(home) / ".codex" / "sessions" / "2026" / "08" / "20"
+    d.mkdir(parents=True)
+    sid_main = "01a00000-0000-7000-8000-00000000000a"
+    sid_sub = "01a00000-0000-7000-8000-00000000000b"
+    main = d / f"rollout-2026-08-20T10-00-00-{sid_main}.jsonl"
+    sub = d / f"rollout-2026-08-20T10-00-01-{sid_sub}.jsonl"
+    _write(main, [
+        {"timestamp": "2026-08-20T10:00:00.000Z", "type": "session_meta",
+         "payload": {"session_id": sid_main, "source": "cli"}},
+    ])
+    _write(sub, [
+        {"timestamp": "2026-08-20T10:00:01.000Z", "type": "session_meta",
+         "payload": {"session_id": sid_sub, "source": {"subagent": {"thread_spawn": {}}},
+                     "parent_thread_id": sid_main}},
+    ])
+    found = list_sessions(home)
+    names = {p.name for p in found}
+    assert main.name in names
+    assert sub.name not in names
 
 
 if __name__ == "__main__":

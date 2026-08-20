@@ -75,11 +75,12 @@ def analyze(path, harness=None):
     """Grade one session from any supported harness. Detection is automatic;
     parsing is delegated to harness_adapters, bookkeeping happens here."""
     harness = harness or detect_harness(path) or "claude-code"
-    session_id, hash_path = session_identity(path, harness)
+    session_id, hash_paths = session_identity(path, harness)
     sha = hashlib.sha256()
-    with open(hash_path, "rb") as fh:          # chunked: transcripts can be huge
-        for chunk in iter(lambda: fh.read(1 << 20), b""):
-            sha.update(chunk)
+    for hash_path in hash_paths:
+        with open(hash_path, "rb") as fh:      # chunked: transcripts can be huge
+            for chunk in iter(lambda: fh.read(1 << 20), b""):
+                sha.update(chunk)
     s = {
         "session_id": session_id,
         "harness": harness,
@@ -600,6 +601,49 @@ def default_home():
     return Path(os.environ.get("TERMINALLY_COOKED_HOME") or Path.home())
 
 
+INVOKER_ENV = (
+    "GROK_SESSION_ID",
+    "CODEX_THREAD_ID",
+    "CODEX_SESSION_ID",
+    "CLAUDE_SESSION_ID",
+    "CLAUDE_CODE_SESSION_ID",
+)
+
+
+def invoking_ids(env=None):
+    """Session/thread ids the current process belongs to. Empty if unknown."""
+    env = os.environ if env is None else env
+    ids = []
+    for key in INVOKER_ENV:
+        v = env.get(key)
+        if isinstance(v, str) and v.strip():
+            ids.append(v.strip())
+    return ids
+
+
+def is_invoking_session(path, live_ids):
+    if not live_ids:
+        return False
+    label = session_label(path)
+    name = Path(path).name
+    for i in live_ids:
+        if i == label or i in name or name.startswith(i) or label.startswith(i):
+            return True
+    return False
+
+
+def live_paths(cands, live_ids=None):
+    """Sessions this process is currently writing. Env ids win; else newest mtime."""
+    if live_ids is None:
+        live_ids = invoking_ids()
+    matched = [p for p in cands if is_invoking_session(p, live_ids)]
+    if matched:
+        return matched
+    if cands:
+        return [max(cands, key=session_mtime)]
+    return []
+
+
 def session_label(path):
     p = Path(path)
     return p.name if p.is_dir() else p.stem[-36:] if len(p.stem) >= 36 else p.stem
@@ -619,18 +663,24 @@ def juice_score(s):
     return tools * length
 
 
-def pick_juicy_session(home=None, now=None, claude_projects=None):
-    """Return (path, skip-note). Never returns the live (newest-mtime) session."""
+def pick_juicy_session(home=None, now=None, claude_projects=None, live_ids=None):
+    """Return (path, skip-note). Never returns the invoking session.
+
+    live_ids come from harness env (GROK_SESSION_ID, CODEX_THREAD_ID, …).
+    When those are absent, fall back to newest mtime as a last resort.
+    """
     home = Path(home or default_home())
     now = now or datetime.now().astimezone()
     today = now.astimezone().date()
     cands = [p for p in list_sessions(home, claude_projects) if session_bytes(p) <= MAX_PICK_BYTES]
     if not cands:
         return None, "no session transcripts found"
-    live = max(cands, key=session_mtime)
-    rest = [p for p in cands if p.resolve() != live.resolve()]
+    live = live_paths(cands, live_ids)
+    live_resolved = {p.resolve() for p in live}
+    rest = [p for p in cands if p.resolve() not in live_resolved]
+    skipped = ", ".join(session_label(p) for p in live) or "live session"
     if not rest:
-        return None, f"skipped live session {session_label(live)}; nothing else to grade"
+        return None, f"skipped live session {skipped}; nothing else to grade"
     cutoff = now.timestamp() - PICK_LOOKBACK_DAYS * 86400
     recent = [p for p in rest if session_mtime(p) >= cutoff] or rest
     midnight = now.astimezone().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
@@ -651,7 +701,7 @@ def pick_juicy_session(home=None, now=None, claude_projects=None):
             continue
         scored.append((p, stats, juice_score(stats)))
     if not scored:
-        return None, f"skipped live session {session_label(live)}; no readable sessions"
+        return None, f"skipped live session {skipped}; no readable sessions"
     def pool(days):
         out = []
         for p, stats, j in scored:
@@ -668,10 +718,10 @@ def pick_juicy_session(home=None, now=None, claude_projects=None):
         return out
     chosen = pool(0) or pool(PICK_LOOKBACK_DAYS)
     if not chosen:
-        return None, f"skipped live session {session_label(live)}; no other sessions today or in the last {PICK_LOOKBACK_DAYS} days"
+        return None, f"skipped live session {skipped}; no other sessions today or in the last {PICK_LOOKBACK_DAYS} days"
     path, stats, _ = max(chosen, key=lambda t: t[2])
     tools = stats["green"] + stats["red"]
-    note = (f"skipped live session {session_label(live)}; "
+    note = (f"skipped live session {skipped}; "
             f"picked {session_label(path)} ({tools} results)")
     return path, note
 
@@ -702,7 +752,7 @@ def main():
     ap.add_argument("--projects-dir", metavar="DIR",
                     help="Claude Code transcript root (default: $CLAUDE_CONFIG_DIR/projects or ~/.claude/projects). Auto-pick still scans Grok/Codex/Gemini under $HOME.")
     args = ap.parse_args()
-    claude_root = projects_dir(args.projects_dir) if args.projects_dir else None
+    claude_root = projects_dir(args.projects_dir)
     path, note = find_session(args.session, claude_root, home=default_home(),
                               claude_projects=claude_root)
     if note:
