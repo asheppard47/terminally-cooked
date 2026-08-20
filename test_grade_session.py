@@ -552,7 +552,7 @@ def test_cli_smoke():
     out = subprocess.run([sys.executable, str(Path(__file__).parent / "grade_session.py"), fix],
                          capture_output=True, text=True)
     assert out.returncode == 0, out.stderr
-    assert "LLM GRADER" in out.stdout
+    assert "TERMINALLY COOKED" in out.stdout
 
 
 if __name__ == "__main__":

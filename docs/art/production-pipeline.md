@@ -4,7 +4,7 @@ schema_version: 2
 title: "Badge Production Pipeline"
 doc_type: detail
 parent: INDEX.md
-last_updated: 2026-08-19
+last_updated: 2026-08-20
 last_audit: 2026-08-19
 audit_status: current
 domain: docs
@@ -28,7 +28,7 @@ triggers:
 | 4 | Grade | `postprocess.py` | saturation +18%, contrast +6%, Display P3 profile |
 | 5 | LOD emit | `postprocess.py` | `icon_1024`, `icon_72`, `icon_32` per badge per model |
 
-Scripts live beside the assets at `/Volumes/WD Black (2TB)/Game Dev/scratch/llm-grader/badge-art/`.
+Pipeline scripts and masters are local scratch, not this repo. Only winning 32/72 px derivatives are committed under `assets/badges/`.
 
 ## Stage detail
 
@@ -40,24 +40,16 @@ Scripts live beside the assets at `/Volumes/WD Black (2TB)/Game Dev/scratch/llm-
 
 ## Running it
 
-```bash
-cd "/Volumes/WD Black (2TB)/Game Dev/scratch/llm-grader/badge-art"
-export XAI_KEY=$(aws ssm get-parameter --name /shared/api-keys/xai \
-  --with-decryption --region us-east-2 --query Parameter.Value --output text)
+Work in a local scratch directory that is **not** this git tree. Put the prompt files, driver scripts, and masters there. Export whichever image-provider key your driver needs from your own secret store — never commit keys, and never add a fetch to `grade_session.py`.
 
-python3 gen_grok.py <slug> [<slug> ...]      # xAI lane
+```bash
+python3 gen_grok.py <slug> [<slug> ...]      # metered image lane (optional)
 bash orientation_gates.sh                     # direction gate + auto-mirror
 python3 postprocess.py                        # grade, P3 tag, LOD set
 open gallery.html                             # blind A/B review
 ```
 
-The Codex lane runs per badge and must be anchored at a directory containing an instruction file, reaching the scratch directory through `--add-dir`, with stdin closed:
-
-```bash
-codex exec -C "$HOME/repos/personal/Game Dev" --add-dir "$PWD" \
-  -s workspace-write --enable image_generation \
-  "Generate one image with the image_generation tool and save it to exactly this path: $PWD/chatgpt_<slug>.png — then stop. The image MUST be square (1:1). Image prompt: <prompt>" < /dev/null
-```
+A second model lane (for the blind vote) should use the identical prompt and write a square PNG next to the first. Codex `image_gen` is one such lane: anchor `codex exec` at a directory that already has an instruction file, reach scratch via `--add-dir`, and close stdin (`< /dev/null`). Promote only the voted 32 px and 72 px files into `assets/badges/`.
 
 ## Cost and volume
 

@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
-"""LLM Grader — grade one Claude Code session into a comedy results card.
+"""Terminally Cooked — grade one AI-coding session into a comedy results card.
 
-Local-only, zero-upload. Reads a session transcript JSONL from
-~/.claude/projects/<project-dir>/<session-uuid>.jsonl, computes raw observable
-counts, attaches comedy buffs/debuffs, and renders an ANSI terminal card in the
+Local-only, zero-upload. Reads a session record already on disk (Claude Code,
+Codex, Grok, or Gemini CLI — auto-detected), computes raw observable counts,
+attaches comedy buffs/debuffs, and renders an ANSI terminal card in the
 red/green diff-counter aesthetic.
 
 Card fields are ALLOWLISTED: no cwd, repo names, branch names, file paths,
-prompt text, or tool output ever reaches the card. Concept SSOT:
-~/repos/personal/Game Dev/learning/llm-grader-concept.md
+prompt text, or tool output ever reaches the card. Product docs: INDEX.md.
 """
 
 import argparse
@@ -450,7 +449,7 @@ def render(s, buffs, final):
     line = "─" * w
     out = []
     out.append(C.dim("┌" + line + "┐"))
-    out.append(C.bold("  LLM GRADER") + C.dim(f"  ·  session {s['session_id'][:8]}  ·  {date}  ·  {dur}  ·  {division(s)}"))
+    out.append(C.bold("  TERMINALLY COOKED") + C.dim(f"  ·  session {s['session_id'][:8]}  ·  {date}  ·  {dur}  ·  {division(s)}"))
     out.append(C.dim(f"  {models}  ·  effort: {efforts}"))
     dn = delegation_note(s)
     if dn:
@@ -528,7 +527,7 @@ def render_html(s, buffs, final):
     if s["tokens_in"] or s["tokens_out"]:
         tokens = f'<div class="meta">tokens: {s["tokens_in"]/1e6:,.1f}M in &middot; {s["tokens_out"]/1e6:,.2f}M out</div>'
     core, flat = score_parts(s, buffs)
-    return f"""<!-- llm-grader shareable card -->
+    return f"""<!-- terminally-cooked shareable card -->
 <meta charset="utf-8">
 <div style="max-width:560px">
 <style>
@@ -559,7 +558,7 @@ def render_html(s, buffs, final):
 .lg-card .fine{{color:#484f58;font-size:11px}}
 </style>
 <div class="lg-card">
-<h1>LLM GRADER</h1>
+<h1>TERMINALLY COOKED</h1>
 <div class="meta">session {esc(s['session_id'][:8])} &middot; {esc(date)} &middot; {dur} &middot; {division(s)} &middot; {esc(models)} &middot; effort: {esc(efforts)}</div>
 {f'<div class="meta">{esc(delegation_note(s))}</div>' if delegation_note(s) else ''}
 <div class="fever"><i></i></div>
@@ -587,8 +586,8 @@ def share_caption(s, buffs, final):
     user pastes and posts — the score never rides a URL to anyone's server."""
     core, flat = score_parts(s, buffs)
     top = " · ".join(f"{ICONS.get(n, '·')} {n}" for n, k, v, _ in buffs[:3])
-    return (f"LLM Grader: +{final:,} (skill {core:,} · comedy {flat:,}) — {division(s)}\n"
-            f"{top}\n(means nothing. sharing it anyway.) #LLMGrader")
+    return (f"Terminally Cooked: +{final:,} (skill {core:,} · comedy {flat:,}) — {division(s)}\n"
+            f"{top}\n(means nothing. sharing it anyway.) #TerminallyCooked")
 
 
 def find_session(arg, root=None):
@@ -607,10 +606,10 @@ def find_session(arg, root=None):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Grade a Claude Code session into a comedy results card (local-only, zero-upload).")
+    ap = argparse.ArgumentParser(description="Grade one of your own AI-coding sessions into a comedy results card (local-only, zero-upload).")
     ap.add_argument("session", nargs="?", help="Path to a session .jsonl, a session-uuid prefix, or omit for the most recent session")
     ap.add_argument("--html", nargs="?", const="", metavar="OUT",
-                    help="Also write a shareable standalone HTML card (default: ./llm-grader-card-<id>.html)")
+                    help="Also write a shareable standalone HTML card (default: ./terminally-cooked-card-<id>.html)")
     ap.add_argument("--share", action="store_true",
                     help="Copy a suggested post caption to the clipboard and open a blank X composer. Nothing is transmitted; you paste and post.")
     ap.add_argument("--projects-dir", metavar="DIR",
@@ -622,7 +621,7 @@ def main():
     final = score(s, buffs)
     print(render(s, buffs, final))
     if args.html is not None:
-        out = Path(args.html) if args.html else Path(f"llm-grader-card-{s['session_id'][:8]}.html")
+        out = Path(args.html) if args.html else Path(f"terminally-cooked-card-{s['session_id'][:8]}.html")
         out.write_text(render_html(s, buffs, final))
         print(f"\nhtml card: {out.resolve()}")
     if args.share:

@@ -1,34 +1,37 @@
 ---
 version: "1.0.0"
 schema_version: 2
-title: "LLM Grader — Doc Tree"
+title: "Terminally Cooked — Doc Tree"
 doc_type: index
 parent: null
-last_updated: 2026-08-19
+last_updated: 2026-08-20
 last_audit: 2026-08-19
 audit_status: current
 domain: docs
 triggers:
+  - "terminally cooked docs"
   - "llm grader docs"
   - "llm grader index"
   - "badge system docs"
 ---
-# LLM Grader — Doc Tree
+# Terminally Cooked — Doc Tree
 
-**LLM Grader grades one of your own AI-coding sessions into a comedy results card, entirely on your machine.** It reads a Claude Code session transcript that already exists locally, counts what actually happened, attaches named achievement modifiers, and renders a card in the red/green diff-counter aesthetic. The score is entertainment and says so on the card. Nothing is uploaded, ever.
+**Terminally Cooked grades one of your own AI-coding sessions into a comedy results card, entirely on your machine.** It reads a session transcript that already exists locally, counts what actually happened, attaches named achievement modifiers, and renders a card in the red/green diff-counter aesthetic. The score is entertainment and says so on the card. Nothing is uploaded, ever. Working title during build was LLM Grader.
 
 This index is the entry point. Each section below owns one stage of the work and nothing else; every leaf answers its question in its first paragraph.
 
-## Current state (2026-08-19)
+## Current state (2026-08-20)
 
 | Dimension | State |
 |---|---|
-| Code | `grade_session.py`, scoring v0.4, 24 tests green |
-| Repo | `asheppard47/llm-grader` (private), credential-pinned |
+| Code | `grade_session.py` + `harness_adapters.py`, scoring v0.5, 35 tests green |
+| License | MIT |
+| Repo | `asheppard47/terminally-cooked` |
 | Catalog | 24 modifiers across 3 classes — [design/modifier-catalog.md](./docs/design/modifier-catalog.md) |
-| Badge art | 48 renders (2 models × 24 badges), blind vote open — [art/voting-protocol.md](./docs/art/voting-protocol.md) |
-| External review | 2 med-arb waves adjudicated — [research/review-ledgers.md](./docs/research/review-ledgers.md) |
-| Not built | Persistent badges/history, marketing lane, public release |
+| Badge art | Voted winners in `assets/badges/`, inlined as data URIs — [art/voting-protocol.md](./docs/art/voting-protocol.md) |
+| Harnesses | Claude Code, Codex, Grok, Gemini CLI — card stamps the adapter |
+| External review | 2 med-arb waves + a 3-seat adapter validation — [research/review-ledgers.md](./docs/research/review-ledgers.md) |
+| Not built | Persistent badges/history, marketing lane |
 
 ## Sections
 
@@ -50,8 +53,4 @@ Three rules outrank every other document here. Violating one is a defect, not a 
 
 ## Lineage
 
-The concept came out of a Game Dev workshop brainstorm on 2026-08-18 that also produced an archived predecessor (a rhythm game built on the same diff-counter aesthetic). Workshop-level lineage and the X-research evidence capsule live in the workshop repo:
-
-- `~/repos/personal/Game Dev/learning/llm-grader-concept.md` — concept SSOT and workshop routing
-- `~/repos/personal/Game Dev/learning/llm-rhythm-concept.md` — archived predecessor
-- `~/repos/personal/Game Dev/learning/research_x_ai_cli_culture_2026-08-18.md` — X research evidence capsule
+The concept came out of a 2026-08-18 workshop brainstorm that also produced an archived predecessor (a rhythm game on the same diff-counter aesthetic). This tree is the SSOT for how the product works. Audience-research headlines that shaped the catalog are in [docs/research/INDEX.md](./docs/research/INDEX.md). Private workshop notes are not in this repository and are not required to run the tool.

@@ -17,7 +17,7 @@ triggers:
 ---
 # Harness Adapters — Route-by-Harness Design
 
-**Every major agent CLI persists a local session record rich enough to grade, and the router detects the harness from the file's own shape — never from a user flag.** This is the design for extending LLM Grader beyond Claude Code without weakening the zero-upload contract: each adapter reads local files only and normalizes them into the ten-observable ingestion contract that `analyze()` already consumes. Advisory sources: each vendor's own frontier model was asked about its own harness (2026-08-20); Codex answers were verified against a locally installed CLI, Grok answers carry source citations into the public repo, Gemini answers are schema-level with UNVERIFIED markers preserved.
+**Every major agent CLI persists a local session record rich enough to grade, and the router detects the harness from the file's own shape — never from a user flag.** This is the design for extending Terminally Cooked beyond Claude Code without weakening the zero-upload contract: each adapter reads local files only and normalizes them into the ten-observable ingestion contract that `analyze()` already consumes. Advisory sources: each vendor's own frontier model was asked about its own harness (2026-08-20); Codex answers were verified against a locally installed CLI, Grok answers carry source citations into the public repo, Gemini answers are schema-level with UNVERIFIED markers preserved.
 
 ## The ingestion contract
 

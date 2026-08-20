@@ -1,47 +1,61 @@
-# LLM Grader
+# Terminally Cooked
 
-Grade one of your own AI-coding sessions into a comedy results card, rendered in
-the red/green diff-counter aesthetic. Local-only, zero-upload: it reads the session
-record already on your disk, counts what happened, attaches named achievements,
-and prints a card. The score is entertainment and says so.
+An AI coding session roast. Grade one of your own agent sessions into a comedy
+results card, in the red/green diff-counter look. Local-only: it reads a
+session file already on your disk, counts what happened, stamps named
+achievements, and prints a card. The score is entertainment and says so.
 
 Supported harnesses (auto-detected from the file's own shape): **Claude Code**,
-**Codex CLI**, **Grok CLI**, **Gemini CLI**. Pass a Codex rollout file, a Grok
-session directory, or a Gemini chat file exactly like a Claude transcript. Cards
-stamp their adapter — cross-harness scores are different games and say so.
+**Codex CLI**, **Grok CLI**, **Gemini CLI**. Cross-harness scores are different
+games. The card stamps which adapter produced it.
 
 ```bash
-python3 grade_session.py            # grade your most recent session
-python3 grade_session.py a3a4d4fb   # grade by session-uuid prefix
+git clone https://github.com/asheppard47/terminally-cooked.git
+cd terminally-cooked
+python3 grade_session.py            # most recent Claude Code session
+python3 grade_session.py a3a4d4fb   # session-uuid prefix
 python3 grade_session.py path/to/session.jsonl
-python3 grade_session.py --html     # also write a shareable HTML card
-python3 grade_session.py --share    # copy a caption to the clipboard + open X composer
-python3 test_grade_session.py       # 28 tests
+python3 grade_session.py --html     # standalone HTML card
+python3 grade_session.py --share    # copy a caption; you paste it
+python3 test_grade_session.py       # 35 tests
+python3 grade_session.py --help
 ```
 
-## Documentation
+Python 3.9+, stdlib only. Badge PNGs live in `assets/badges/` and ride along
+in the clone. HTML cards embed them as data URIs, so producing a card does not
+hit the network.
 
-**[INDEX.md](./INDEX.md) is the doc tree** — start there. Sections:
+Point a Codex rollout, a Grok session directory, or a Gemini chat file at the
+same CLI. Clone this repo into your agent's skill path if you want the bundled
+[SKILL.md](./SKILL.md) — it tells the agent how to grade, and what it may
+repair when a transcript format drifts.
 
-| Section | What it owns |
+## Privacy
+
+Nothing leaves the machine. There is no network code on the grading path. Card
+fields are allowlisted — no prompt text, file paths, repo names, or tool output —
+and a test enforces it. Sharing a card is something you do. Full contract:
+[docs/product/privacy-contract.md](./docs/product/privacy-contract.md).
+
+## License
+
+[MIT](./LICENSE). [Contributing](./CONTRIBUTING.md).
+
+## Docs
+
+[INDEX.md](./INDEX.md) is the tree.
+
+| Section | Owns |
 |---|---|
 | [docs/product/](./docs/product/INDEX.md) | Concept, privacy contract, decision log |
 | [docs/design/](./docs/design/INDEX.md) | Scoring model, modifier catalog, card spec |
-| [docs/art/](./docs/art/INDEX.md) | Badge style guide, production pipeline, voting protocol |
+| [docs/art/](./docs/art/INDEX.md) | Badge style, production, voting |
 | [docs/engineering/](./docs/engineering/INDEX.md) | Architecture, transcript observables, testing |
-| [docs/research/](./docs/research/INDEX.md) | External review ledgers, audience research |
-
-## Privacy contract
-
-Nothing leaves the machine. No network code exists in this repo. Card fields are
-allowlisted — no prompt text, file paths, repo names, or tool output — and a test
-enforces it. Sharing a card is something you do, never something the tool does.
-Full contract: [docs/product/privacy-contract.md](./docs/product/privacy-contract.md).
+| [docs/research/](./docs/research/INDEX.md) | External review ledgers |
 
 ## Status
 
-V1 prototype, scoring v0.4, 24 modifiers, 24 tests green. Badge art is rendered and
-out for a blind vote; persistent badges and public release are not built.
-Known coupling: Claude Code's internal transcript JSONL format, which can change
-between versions — see
+Scoring v0.5, 24 modifiers, 35 tests. Known coupling: each CLI's session
+format can change. Adapters fail open; breakage is a degraded card, not a
+crash. See
 [docs/engineering/transcript-observables.md](./docs/engineering/transcript-observables.md).
