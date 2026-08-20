@@ -1,0 +1,218 @@
+{
+ "all_plan_no_game": {
+  "badge": "ALL PLAN NO GAME",
+  "model": "grok",
+  "unanimous": true,
+  "votes": {
+   "A": 0,
+   "B": 3
+  }
+ },
+ "backseat_driver": {
+  "badge": "BACKSEAT DRIVER",
+  "model": "grok",
+  "unanimous": false,
+  "votes": {
+   "A": 1,
+   "B": 2
+  }
+ },
+ "bookworm": {
+  "badge": "BOOKWORM",
+  "model": "chatgpt",
+  "unanimous": false,
+  "votes": {
+   "A": 2,
+   "B": 1
+  }
+ },
+ "clean_streak": {
+  "badge": "CLEAN STREAK",
+  "model": "chatgpt",
+  "unanimous": true,
+  "votes": {
+   "A": 3,
+   "B": 0
+  }
+ },
+ "doom_loop": {
+  "badge": "DOOM LOOP",
+  "model": "chatgpt",
+  "unanimous": true,
+  "votes": {
+   "A": 3,
+   "B": 0
+  }
+ },
+ "error_spiral": {
+  "badge": "ERROR SPIRAL",
+  "model": "chatgpt",
+  "unanimous": false,
+  "votes": {
+   "A": 2,
+   "B": 1
+  }
+ },
+ "flow_state": {
+  "badge": "FLOW STATE",
+  "model": "grok",
+  "unanimous": true,
+  "votes": {
+   "A": 0,
+   "B": 3
+  }
+ },
+ "let_it_cook": {
+  "badge": "LET IT COOK",
+  "model": "grok",
+  "unanimous": false,
+  "votes": {
+   "A": 1,
+   "B": 2
+  }
+ },
+ "long_game": {
+  "badge": "THE LONG GAME",
+  "model": "chatgpt",
+  "unanimous": false,
+  "votes": {
+   "A": 2,
+   "B": 1
+  }
+ },
+ "lost_the_tapes": {
+  "badge": "LOST THE TAPES",
+  "model": "grok",
+  "unanimous": false,
+  "votes": {
+   "A": 1,
+   "B": 2
+  }
+ },
+ "marathon": {
+  "badge": "MARATHON",
+  "model": "grok",
+  "unanimous": false,
+  "votes": {
+   "A": 1,
+   "B": 2
+  }
+ },
+ "middle_manager": {
+  "badge": "MIDDLE MANAGER",
+  "model": "chatgpt",
+  "unanimous": false,
+  "votes": {
+   "A": 2,
+   "B": 1
+  }
+ },
+ "model_hopper": {
+  "badge": "MODEL HOPPER",
+  "model": "grok",
+  "unanimous": true,
+  "votes": {
+   "A": 0,
+   "B": 3
+  }
+ },
+ "night_shift": {
+  "badge": "NIGHT SHIFT",
+  "model": "grok",
+  "unanimous": false,
+  "votes": {
+   "A": 1,
+   "B": 2
+  }
+ },
+ "one_shot_wonder": {
+  "badge": "ONE-SHOT WONDER",
+  "model": "grok",
+  "unanimous": false,
+  "votes": {
+   "A": 1,
+   "B": 2
+  }
+ },
+ "overloaded": {
+  "badge": "OVERLOADED",
+  "model": "chatgpt",
+  "unanimous": true,
+  "votes": {
+   "A": 3,
+   "B": 0
+  }
+ },
+ "perfectly_balanced": {
+  "badge": "PERFECTLY BALANCED",
+  "model": "grok",
+  "unanimous": false,
+  "votes": {
+   "A": 1,
+   "B": 2
+  }
+ },
+ "red_wedding": {
+  "badge": "RED WEDDING",
+  "model": "grok",
+  "unanimous": true,
+  "votes": {
+   "A": 0,
+   "B": 3
+  }
+ },
+ "speedrun": {
+  "badge": "SPEEDRUN",
+  "model": "chatgpt",
+  "unanimous": false,
+  "votes": {
+   "A": 2,
+   "B": 1
+  }
+ },
+ "test_whisperer": {
+  "badge": "TEST WHISPERER",
+  "model": "chatgpt",
+  "unanimous": false,
+  "votes": {
+   "A": 2,
+   "B": 1
+  }
+ },
+ "third_times_charm": {
+  "badge": "THIRD TIME'S THE CHARM",
+  "model": "grok",
+  "unanimous": false,
+  "votes": {
+   "A": 1,
+   "B": 2
+  }
+ },
+ "token_bonfire": {
+  "badge": "TOKEN BONFIRE",
+  "model": "chatgpt",
+  "unanimous": false,
+  "votes": {
+   "A": 2,
+   "B": 1
+  }
+ },
+ "twenty_questions": {
+  "badge": "TWENTY QUESTIONS",
+  "model": "chatgpt",
+  "unanimous": false,
+  "votes": {
+   "A": 2,
+   "B": 1
+  }
+ },
+ "yolo_mode": {
+  "badge": "YOLO MODE",
+  "model": "grok",
+  "unanimous": false,
+  "votes": {
+   "A": 1,
+   "B": 2
+  }
+ }
+}

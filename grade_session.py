@@ -12,6 +12,7 @@ prompt text, or tool output ever reaches the card. Concept SSOT:
 """
 
 import argparse
+import base64
 import hashlib
 import json
 import os
@@ -230,6 +231,37 @@ ICONS = {
     "Bookworm": "¶", "Perfectly Balanced": "≍",
 }
 
+# Badge art: winning render per modifier, chosen by blind vote (see
+# docs/art/voting-protocol.md). Embedded as data URIs so a shared card stays
+# self-contained; the terminal card keeps the glyphs above.
+BADGE_DIR = Path(__file__).parent / "assets" / "badges"
+SLUGS = {
+    "ONE-SHOT WONDER": "one_shot_wonder", "FLOW STATE": "flow_state",
+    "Clean Streak": "clean_streak", "LET IT COOK": "let_it_cook",
+    "THE LONG GAME": "long_game", "Red Wedding": "red_wedding",
+    "Error Spiral": "error_spiral", "Doom Loop": "doom_loop",
+    "Backseat Driver": "backseat_driver", "All Plan No Game": "all_plan_no_game",
+    "Twenty Questions": "twenty_questions", "Third Time's the Charm": "third_times_charm",
+    "Overloaded": "overloaded", "YOLO MODE": "yolo_mode",
+    "Token Bonfire": "token_bonfire", "Night Shift": "night_shift",
+    "Marathon": "marathon", "Test Whisperer": "test_whisperer",
+    "Speedrun": "speedrun", "Middle Manager": "middle_manager",
+    "Lost the Tapes": "lost_the_tapes", "Model Hopper": "model_hopper",
+    "Bookworm": "bookworm", "Perfectly Balanced": "perfectly_balanced",
+}
+
+
+def badge_data_uri(name, size=72):
+    """Return the badge art as a data URI, or None when the asset is absent."""
+    slug = SLUGS.get(name)
+    if not slug:
+        return None
+    path = BADGE_DIR / f"{slug}_{size}.png"
+    if not path.exists():
+        return None
+    return "data:image/png;base64," + base64.b64encode(path.read_bytes()).decode()
+
+
 SAFE_META_RE = re.compile(r"[^A-Za-z0-9._+\- ]")
 
 
@@ -439,7 +471,10 @@ def render_html(s, buffs, final):
     def chip(name, kind, value, why):
         glyph = ICONS.get(name, "·")
         tag = (f"+{value}" if kind == "flavor" else f"&times;{round(value, 2)}")
-        return (f'<div class="badge {kind}"><span class="tile">{glyph}</span>'
+        art = badge_data_uri(name)
+        tile = (f'<img class="tile art" src="{art}" alt="">' if art
+                else f'<span class="tile">{glyph}</span>')
+        return (f'<div class="badge {kind}">{tile}'
                 f'<span class="bmeta"><span class="brow"><span class="bname">{name}</span>'
                 f'<span class="btag">{tag}</span></span>'
                 f'<span class="bwhy">{why}</span></span></div>')
@@ -467,7 +502,8 @@ def render_html(s, buffs, final):
 .lg-card .diff{{margin:8px 0}}.lg-card .rm{{color:#f85149}}.lg-card .add{{color:#3fb950}}
 .lg-card .badges{{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px;margin:12px 0 4px}}
 .lg-card .badge{{display:flex;gap:9px;align-items:center;border:1px solid #30363d;border-radius:7px;padding:7px 9px;background:#161b22}}
-.lg-card .badge .tile{{flex:none;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:15px;border:1px solid #30363d;border-radius:6px;background:#0d1117;color:#8b949e}}
+.lg-card .badge .tile{{flex:none;width:44px;height:44px;display:flex;align-items:center;justify-content:center;font-size:18px;border:1px solid #30363d;border-radius:8px;background:#0d1117;color:#8b949e}}
+.lg-card .badge .tile.art{{object-fit:cover;padding:0}}
 .lg-card .badge.chain{{border-color:#9e7c27;box-shadow:0 0 10px rgba(210,153,34,.18)}}
 .lg-card .badge.chain .tile{{color:#d29922;border-color:#9e7c27}}
 .lg-card .badge.chain .btag{{color:#d29922}}

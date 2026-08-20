@@ -294,6 +294,22 @@ def test_meta_injection_sanitized():
     assert "claude-xscriptalert1script" in html  # stripped, not dropped
 
 
+def test_badge_art_embedded_without_paths():
+    """Badge art must travel as a data URI — never a filesystem reference."""
+    from grade_session import badge_data_uri
+    recs = [prompt()]
+    for i in range(30):                     # earns a streak chain with art
+        recs.append(asst([tool_use("Bash", f"g{i}", command=f"s{i}")]))
+        recs.append(result(f"g{i}", "ok"))
+    s = analyze(write_fixture(recs))
+    buffs = pick_buffs(s)
+    html = render_html(s, buffs, score(s, buffs))
+    if badge_data_uri("ONE-SHOT WONDER"):   # assets present
+        assert "data:image/png;base64," in html
+        assert "assets/badges" not in html
+        assert "/Users/" not in html
+
+
 def test_cli_smoke():
     recs = [prompt(), asst([tool_use("Bash", "t", command="ls")]), result("t", "ok")]
     fix = write_fixture(recs)
