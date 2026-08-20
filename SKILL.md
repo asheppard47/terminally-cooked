@@ -14,10 +14,11 @@ description: >
 Run the CLI in this repo. Do not reimplement scoring.
 
 **Never grade the session you are currently in.** The invoking chat is a
-probe, not a work session. Omit the path and let the CLI skip the live
-session, then pick the meatiest other session from today (tool-result volume
-and duration). If today has nothing else, it looks back one week. Do not pass
-the current transcript path, uuid, or rollout file.
+probe, not a work session. Omit the path. The CLI skips the live session by
+harness env (`GROK_SESSION_ID`, `CODEX_THREAD_ID`, `CLAUDE_SESSION_ID`) and
+picks the meatiest other session from today. If today has nothing else, it
+looks back one week. Do not pass the current transcript path, uuid, or
+rollout file.
 
 ```bash
 python3 grade_session.py            # juicy session from today, never the live one

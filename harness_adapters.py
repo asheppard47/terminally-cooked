@@ -19,6 +19,7 @@ Normalized events (dicts; every event may carry "ts" ISO-8601):
   {"kind": "compaction"}
 """
 import json
+import os
 import re
 from pathlib import Path
 
@@ -100,14 +101,15 @@ def detect_harness(path):
 
 
 def session_identity(path, harness):
-    """(session_id, bytes-for-hash-path). Grok sessions hash events.jsonl."""
+    """(session_id, files-to-hash). Grok hashes events.jsonl and updates.jsonl
+    because tokens and command text now come from updates."""
     p = Path(path)
     if harness == "grok":
-        return p.name, (p / "events.jsonl" if (p / "events.jsonl").exists()
-                        else p / "updates.jsonl")
+        files = [p / n for n in ("events.jsonl", "updates.jsonl") if (p / n).exists()]
+        return p.name, files or [p]
     if harness == "codex":
-        return p.stem[-36:], p           # rollout-<ts>-<uuid>
-    return p.stem, p
+        return p.stem[-36:], [p]           # rollout-<ts>-<uuid>
+    return p.stem, [p]
 
 
 # ---------------------------------------------------------------- claude-code
@@ -389,15 +391,43 @@ def iter_events(path, harness=None):
 
 
 def session_mtime(path):
+    """Newest write among the files that make up a session record."""
     p = Path(path)
     if p.is_dir():
-        for name in ("events.jsonl", "updates.jsonl", "summary.json"):
-            f = p / name
-            if f.exists():
-                return f.stat().st_mtime
+        times = [(p / n).stat().st_mtime
+                 for n in ("events.jsonl", "updates.jsonl")
+                 if (p / n).exists()]
+        if times:
+            return max(times)
+        summary = p / "summary.json"
+        return summary.stat().st_mtime if summary.exists() else 0
     if p.exists():
         return p.stat().st_mtime
     return 0
+
+
+def _codex_meta(path, limit=30):
+    """First session_meta payload, or {} if the file has none in the first records."""
+    n = 0
+    for rec in _iter_jsonl(path):
+        n += 1
+        if rec.get("type") == "session_meta":
+            payload = rec.get("payload")
+            return payload if isinstance(payload, dict) else {}
+        if n >= limit:
+            break
+    return {}
+
+
+def is_codex_subagent(path):
+    """True when session_meta.source is a subagent spawn (or parent_thread_id is set)."""
+    meta = _codex_meta(path)
+    src = meta.get("source")
+    if isinstance(src, dict) and "subagent" in src:
+        return True
+    if meta.get("parent_thread_id"):
+        return True
+    return False
 
 
 def session_bytes(path):
@@ -413,13 +443,25 @@ def session_bytes(path):
 
 
 def list_sessions(home=None, claude_projects=None):
-    """Local session records for every supported harness. Dirs for Grok, files otherwise."""
-    home = Path(home or Path.home())
+    """Primary local session records. Dirs for Grok, files otherwise.
+
+    Skips Grok `subagents/` dirs and Codex rollouts whose session_meta marks
+    them as subagent threads. Respects $CLAUDE_CONFIG_DIR, $GROK_HOME, $CODEX_HOME
+    when the corresponding override is unset.
+    """
+    default_home = Path.home()
+    home = Path(home or default_home)
+    use_env = home.resolve() == default_home.resolve()
     found = []
-    claude = Path(claude_projects) if claude_projects else home / ".claude" / "projects"
+    if claude_projects:
+        claude = Path(claude_projects)
+    else:
+        cfg = os.environ.get("CLAUDE_CONFIG_DIR") if use_env else None
+        claude = (Path(cfg).expanduser() / "projects") if cfg else home / ".claude" / "projects"
     if claude.is_dir():
         found.extend(claude.glob("*/*.jsonl"))
-    grok = home / ".grok" / "sessions"
+    grok_home = os.environ.get("GROK_HOME") if use_env else None
+    grok = (Path(grok_home).expanduser() / "sessions") if grok_home else home / ".grok" / "sessions"
     if grok.is_dir():
         for summary in grok.rglob("summary.json"):
             d = summary.parent
@@ -427,9 +469,12 @@ def list_sessions(home=None, claude_projects=None):
                 continue
             if (d / "events.jsonl").exists() or (d / "updates.jsonl").exists():
                 found.append(d)
-    codex = home / ".codex" / "sessions"
+    codex_home = os.environ.get("CODEX_HOME") if use_env else None
+    codex = (Path(codex_home).expanduser() / "sessions") if codex_home else home / ".codex" / "sessions"
     if codex.is_dir():
-        found.extend(codex.glob("*/*/*/rollout-*.jsonl"))
+        for p in codex.glob("*/*/*/rollout-*.jsonl"):
+            if not is_codex_subagent(p):
+                found.append(p)
     gemini = home / ".gemini" / "tmp"
     if gemini.is_dir():
         found.extend(gemini.glob("*/chats/session-*.jsonl"))
