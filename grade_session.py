@@ -71,10 +71,14 @@ def analyze(path, harness=None):
     parsing is delegated to harness_adapters, bookkeeping happens here."""
     harness = harness or detect_harness(path) or "claude-code"
     session_id, hash_path = session_identity(path, harness)
+    sha = hashlib.sha256()
+    with open(hash_path, "rb") as fh:          # chunked: transcripts can be huge
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            sha.update(chunk)
     s = {
         "session_id": session_id,
         "harness": harness,
-        "transcript_sha": hashlib.sha256(Path(hash_path).read_bytes()).hexdigest(),
+        "transcript_sha": sha.hexdigest(),
         "models": {},
         "efforts": {},
         "tools": {},
@@ -145,7 +149,9 @@ def analyze(path, harness=None):
                 pending[ev.get("id")] = ev["command"].strip()
         elif kind == "tool_result":
             success = ev.get("success")
-            if ts and s["first_ts"]:
+            if ts and s["first_ts"] and success is not None:
+                # unknown outcomes must not populate "clean" windows either —
+                # they touch neither positive nor negative chains, anywhere
                 try:
                     t0 = datetime.fromisoformat(s["first_ts"].replace("Z", "+00:00"))
                     tn = datetime.fromisoformat(ts.replace("Z", "+00:00"))
