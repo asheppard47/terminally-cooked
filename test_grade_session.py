@@ -490,16 +490,24 @@ def test_detect_and_grade_grok_fixture():
          "tool_name": "shell", "outcome": "permission_rejected", "tool_call_id": "t3"},
     ])
     _write(os.path.join(sess, "updates.jsonl"), [
+        {"sessionUpdate": "tool_call", "toolCallId": "t2",
+         "rawInput": {"command": "true"}},
         {"sessionUpdate": "turn_completed",
-         "usage": {"inputTokens": 10, "cachedReadTokens": 90, "outputTokens": 7}},
+         "usage": {"inputTokens": 10, "cachedReadTokens": 90, "outputTokens": 7,
+                   "totalTokens": 17}},
+        # later snapshot is cumulative; cached is already inside inputTokens
+        {"sessionUpdate": "turn_completed",
+         "usage": {"inputTokens": 1000, "cachedReadTokens": 200, "outputTokens": 50,
+                   "totalTokens": 1050}},
     ])
     assert detect_harness(sess) == "grok"
     s = analyze(sess)
     assert s["harness"] == "grok"
     assert s["green"] == 1 and s["red"] == 1 and s["unknown_results"] == 1
     assert s["yolo_mode"] is True and s["compactions"] == 1
-    assert s["tokens_in"] == 100 and s["tokens_out"] == 7
+    assert s["tokens_in"] == 1000 and s["tokens_out"] == 50
     assert s["models"] == {"grok-4.6": 1}
+    assert s["worst_doom_loop"] == 1   # command recovered from updates.jsonl
 
 
 def test_detect_and_grade_gemini_fixture():

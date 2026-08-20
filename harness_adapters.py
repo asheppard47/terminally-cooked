@@ -258,8 +258,46 @@ GROK_OUTCOME = {"success": True, "error": False, "invalid_tool": False,
                 "hook_denied": False}
 
 
+def _grok_unwrap(rec):
+    if isinstance(rec.get("params"), dict):        # raw ACP notification
+        return rec["params"].get("update") or rec["params"]
+    return rec
+
+
+def _grok_updates(d):
+    """One pass over updates.jsonl: command text per call id, last usage snapshot.
+
+    `turn_completed.usage` is a cumulative session total (inputTokens already
+    includes cachedReadTokens; totalTokens == input + output), same shape as
+    Codex token_count. Summing snapshots double-counts; adding cached on top
+    does it twice.
+    """
+    cmds, last_usage = {}, None
+    up = d / "updates.jsonl"
+    if not up.exists():
+        return cmds, last_usage
+    for rec in _iter_jsonl(up):
+        u = _grok_unwrap(rec)
+        if not isinstance(u, dict):
+            continue
+        su = u.get("sessionUpdate")
+        if su in ("tool_call", "tool_call_update"):
+            cid = u.get("toolCallId")
+            raw = u.get("rawInput")
+            if cid and isinstance(raw, dict):
+                cmd = raw.get("command")
+                if isinstance(cmd, str) and cmd.strip():
+                    cmds[cid] = cmd.strip()
+        elif su == "turn_completed":
+            usage = u.get("usage") or {}
+            if usage:
+                last_usage = usage
+    return cmds, last_usage
+
+
 def _grok_events(path):
     d = Path(path)
+    cmds, last_usage = _grok_updates(d)
     ev = d / "events.jsonl"
     if ev.exists():
         for rec in _iter_jsonl(ev):
@@ -275,24 +313,17 @@ def _grok_events(path):
             elif rtype == "interjected":
                 yield {"kind": "interrupt", "ts": ts}
             elif rtype == "tool_completed":
-                yield {"kind": "tool_call", "id": rec.get("tool_call_id"),
-                       "name": rec.get("tool_name", "?"), "command": None, "ts": ts}
-                yield {"kind": "tool_result", "id": rec.get("tool_call_id"),
+                cid = rec.get("tool_call_id")
+                yield {"kind": "tool_call", "id": cid,
+                       "name": rec.get("tool_name", "?"),
+                       "command": cmds.get(cid), "ts": ts}
+                yield {"kind": "tool_result", "id": cid,
                        "success": GROK_OUTCOME.get(rec.get("outcome")),
                        "text": "", "ts": ts}
-    up = d / "updates.jsonl"
-    if up.exists():
-        for rec in _iter_jsonl(up):
-            u = rec
-            if isinstance(rec.get("params"), dict):        # raw ACP notification
-                u = rec["params"].get("update") or rec["params"]
-            if isinstance(u, dict) and u.get("sessionUpdate") == "turn_completed":
-                usage = u.get("usage") or {}
-                if usage:
-                    yield {"kind": "usage", "ts": None,
-                           "input": (usage.get("inputTokens", 0)
-                                     + usage.get("cachedReadTokens", 0)),
-                           "output": usage.get("outputTokens", 0)}
+    if last_usage:
+        yield {"kind": "usage", "ts": None,
+               "input": last_usage.get("inputTokens", 0) or 0,
+               "output": last_usage.get("outputTokens", 0) or 0}
     cc = d / "compaction_checkpoints"
     if cc.is_dir() and any(cc.iterdir()):
         yield {"kind": "compaction", "ts": None}
