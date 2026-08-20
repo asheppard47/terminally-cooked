@@ -166,7 +166,7 @@ def _min_s(**over):
          "first_ts": None, "last_ts": None, "user_prompts": 0, "tokens_in": 0,
          "tokens_out": 0, "yolo_mode": False, "plan_entries": 0, "overloads": 0,
          "longest_cook": 0, "night_events": 0, "worst_doom_loop": 0,
-         "clean_window_chain": 0}
+         "clean_window_chain": 0, "charm": False}
     s.update(over)
     return s
 
@@ -217,9 +217,50 @@ def test_clean_window_chain_from_transcript():
             ts = f"2026-08-19T10:{w*20 + i*3:02d}:01.000Z"
             recs.append(asst([tool_use("Bash", f"w{n}", command=f"s{n}")], ts=ts))
             recs.append(result(f"w{n}", "ok", ts=ts))
+    # sentinel in bucket 3 so buckets 0-2 are COMPLETED (in-progress bucket never counts)
+    recs.append(asst([tool_use("Bash", "z9", command="done")], ts="2026-08-19T11:01:00.000Z"))
+    recs.append(result("z9", "ok", ts="2026-08-19T11:01:00.000Z"))
     s = analyze(write_fixture(recs))
     assert s["clean_window_chain"] == 3, s["clean_window_chain"]
     assert "THE LONG GAME" in buff_names(s)
+
+
+def test_in_progress_window_never_counts():
+    # 6 clean events all inside the (still open) first bucket -> chain must be 0
+    recs = [prompt(ts="2026-08-19T10:00:00.000Z")]
+    for i in range(6):
+        ts = f"2026-08-19T10:{i*3:02d}:01.000Z"
+        recs.append(asst([tool_use("Bash", f"p{i}", command=f"s{i}")], ts=ts))
+        recs.append(result(f"p{i}", "ok", ts=ts))
+    s = analyze(write_fixture(recs))
+    assert s["clean_window_chain"] == 0, s["clean_window_chain"]
+
+
+def test_charm_requires_recovery():
+    def spiral3(recover):
+        recs = [prompt()]
+        for i in range(3):
+            recs.append(asst([tool_use("Bash", f"e{i}", command=f"x{i}")]))
+            recs.append(result(f"e{i}", "err", err=True))
+        if recover:
+            recs.append(asst([tool_use("Bash", "ok", command="fix")]))
+            recs.append(result("ok", "fine"))
+        return analyze(write_fixture(recs))
+    assert "Third Time's the Charm" in buff_names(spiral3(True))
+    assert "Third Time's the Charm" not in buff_names(spiral3(False))
+
+
+def test_tally_scoped_run_cannot_poison_delta():
+    recs = [prompt(),
+            asst([tool_use("Bash", "t1", command="pytest")]),
+            result("t1", "500 passed, 0 failed"),
+            asst([tool_use("Bash", "t2", command="pytest tests/test_one.py")]),
+            result("t2", "1 passed, 0 failed"),
+            asst([tool_use("Bash", "t3", command="pytest")]),
+            result("t3", "512 passed, 0 failed")]
+    s = analyze(write_fixture(recs))
+    # delta comes from the repeated full-suite command, not the scoped run
+    assert s["first_tally"] == (500, 0) and s["last_tally"] == (512, 0)
 
 
 def test_window_chain_broken_by_error():

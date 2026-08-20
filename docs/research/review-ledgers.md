@@ -64,6 +64,14 @@ A vision model briefed as a game-industry icon designer reviewed the rendered se
 | Major | Inconsistent framing and palette across the set | Locked palette, locked framing, and per-badge focus modes |
 | Fix | Naive downscaling wastes the tile | Dedicated 32 px level of detail with center-zoom crop and boosted contrast |
 
+## Wave 4 — publish-readiness review (2026-08-20)
+
+Three seats fired on the full bundle (code + design docs) against seven publish questions; two returned (one at high effort with 16 findings, one with 9 findings), and the third — grok — was killed at its execution budget twice and reported unavailable. That is now four consecutive budget kills for that seat on code-review bundles: treat it as unsuitable for that packet shape rather than retrying a fifth time.
+
+Confirmed and fixed in scoring v0.5: per-command test tallies (a full suite followed by one focused test read as −499 tests — both reviewers, critical), Third Time's the Charm now requires the recovery its spec always claimed, only completed 20-minute windows qualify for the sustained chain, broader test-runner detection, full HTML escaping of every interpolation, honest All Plan No Game wording, delegation class and session division on the card, `--share` caption-to-clipboard flow, and `--projects-dir` / `$CLAUDE_CONFIG_DIR` packaging support.
+
+Adjudicated conflicts: subagent handling (classification over imputed weights — never fabricate precision about invisible work), share-to-X (blank composer + clipboard over prefilled intent URLs, which transmit the score before posting), scoring standard (complete-session unit with divisions-as-labels; a second "normalized" score was rejected as a reborn comparability claim), and an HMAC verification slug rejected as forgeable theater under a public salt. Verdicts recorded as D12–D16 in the decision log.
+
 ## Practices worth keeping
 
 - **Review the plan before spending.** The X research plan was reviewed before any metered call; the reviewers rewrote the queries, added anti-promotion filters, and forced observability tagging at collection time. That pass prevented an entire wasted research budget.

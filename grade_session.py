@@ -14,14 +14,16 @@ prompt text, or tool output ever reaches the card. Concept SSOT:
 import argparse
 import base64
 import hashlib
+import html as html_mod
 import json
 import os
 import re
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-SCORING_VERSION = "scoring-v0.4 (entertainment only)"
+SCORING_VERSION = "scoring-v0.5 (entertainment only)"
 CHAIN_PRODUCT_CAP = 6.0     # stacked chain multipliers cap ("within reason")
 STREAK_EXP = 1.5            # serialized-event chain superlinearity
 STREAK_CAP = 100
@@ -38,7 +40,8 @@ OVERLOAD_RE = re.compile(r"overloaded|\b529\b", re.IGNORECASE)
 # Tallies only count when the producing Bash command looks like a test run —
 # otherwise quoted/echoed test numbers (docs, cards, logs) poison the delta.
 TEST_CMD_RE = re.compile(
-    r"pytest|py\.test|unittest|npm (?:run )?test|yarn test|go test|cargo test"
+    r"pytest|py\.test|unittest|npm (?:run )?(?:test|e2e)|yarn test|pnpm test"
+    r"|go test|cargo test|make test|mvn test|gradle test|playwright|cypress"
     r"|jest|vitest|phpunit|rspec|ctest|test_|_test|run_suite", re.IGNORECASE)
 INTERRUPT_MARKER = "[Request interrupted"
 
@@ -88,9 +91,11 @@ def analyze(path):
         "night_events": 0,
         "worst_doom_loop": 0,
         "clean_window_chain": 0,
+        "charm": False,        # a run of exactly 3 errors was followed by a success
     }
     streak = spiral = cook = 0
-    windows = {}   # window index -> [events, errors]
+    windows = {}       # window index -> [events, errors]
+    tallies = {}       # normalized test command -> [first_tally, last_tally, samples]
     pending_bash = {}   # tool_use id -> command string (never rendered)
     last_failed_cmd, doom_run = None, 0
     for rec in iter_records(path):
@@ -188,17 +193,33 @@ def analyze(path):
                         last_failed_cmd, doom_run = None, 0
                     streak += 1
                     s["longest_streak"] = max(s["longest_streak"], streak)
+                    if spiral == 3:
+                        s["charm"] = True   # exactly three errors, then this success
                     spiral = 0
                 if cmd is not None and TEST_CMD_RE.search(cmd):
                     m = TALLY_RE.search(tool_result_text(block))
                     if m:
                         tally = (int(m.group(1)), int(m.group(2) or 0))
-                        s["first_tally"] = s["first_tally"] or tally
-                        s["last_tally"] = tally
+                        # per-command tracking: deltas only compare like with like,
+                        # so a full-suite run followed by one focused test can't
+                        # register as a fictional regression
+                        entry = tallies.setdefault(" ".join(cmd.split()), [tally, tally, 0])
+                        entry[1] = tally
+                        entry[2] += 1
             if not saw_tool_result:
                 s["user_prompts"] += 1
+    # pick the tally pair from the most-sampled test command (>=2 samples),
+    # so first/last always describe the same suite
+    picked = max(tallies.values(), key=lambda e: e[2], default=None)
+    if picked and picked[2] >= 2:
+        s["first_tally"], s["last_tally"] = picked[0], picked[1]
+    elif picked:
+        s["first_tally"] = s["last_tally"] = picked[1]   # single run: shown, no delta
+    # only COMPLETED windows qualify: the in-progress final bucket is excluded,
+    # so "three 20-minute windows" cannot be earned in twenty-one minutes
+    last_bucket = max(windows) if windows else -1
     run = best = sparse = 0
-    for i in range(max(windows) + 1) if windows else []:
+    for i in range(last_bucket):
         ev, er = windows.get(i, (0, 0))
         if ev >= WINDOW_MIN_EVENTS and er == 0:
             run += 1
@@ -284,6 +305,24 @@ def duration_minutes(s):
         return None
 
 
+def division(s):
+    """Session length class, like a chess time control. Labels only — divisions
+    never normalize the score, they tell the reader which game was played."""
+    mins = duration_minutes(s)
+    if mins is None:
+        return "?"
+    if mins < 15:
+        return "blitz"
+    if mins < 120:
+        return "sprint"
+    return "long haul"
+
+
+def delegation_note(s):
+    n = s["tools"].get("Agent", 0)
+    return f"delegation: {n} subagent call(s) · internals not graded" if n else None
+
+
 def pick_buffs(s):
     """The modifier catalog. Three kinds:
     - "chain": multiplies — earned only by serialized sustained success
@@ -313,7 +352,7 @@ def pick_buffs(s):
     # debuffs (multiply down)
     if s["worst_spiral"] >= 4:
         buffs.append(("Error Spiral", "debuff", 0.7, f"{s['worst_spiral']} consecutive faceplants"))
-    elif s["worst_spiral"] == 3:
+    elif s["worst_spiral"] == 3 and s["charm"]:
         buffs.append(("Third Time's the Charm", "debuff", 0.9, "3 straight errors, then grace"))
     if ft and lt and lt[1] > ft[1]:
         buffs.append(("Red Wedding", "debuff", 0.6, f"failures went {ft[1]} -> {lt[1]}"))
@@ -322,7 +361,7 @@ def pick_buffs(s):
     if s["interruptions"] >= 3:
         buffs.append(("Backseat Driver", "debuff", 0.8, f"human slammed the brakes {s['interruptions']} times"))
     if s["plan_entries"] >= 1 and tools.get("Edit", 0) + tools.get("Write", 0) == 0:
-        buffs.append(("All Plan No Game", "debuff", 0.8, f"entered plan mode {s['plan_entries']}x, edited nothing"))
+        buffs.append(("All Plan No Game", "debuff", 0.8, f"entered plan mode {s['plan_entries']}x, zero Edit/Write calls"))
     if s["overloads"] >= 1:
         buffs.append(("Overloaded", "debuff", 0.9, f"the API said no, {s['overloads']}x (rare)"))
     if s["worst_doom_loop"] >= 3:
@@ -418,8 +457,11 @@ def render(s, buffs, final):
     line = "─" * w
     out = []
     out.append(C.dim("┌" + line + "┐"))
-    out.append(C.bold("  LLM GRADER") + C.dim(f"  ·  session {s['session_id'][:8]}  ·  {date}  ·  {dur}"))
+    out.append(C.bold("  LLM GRADER") + C.dim(f"  ·  session {s['session_id'][:8]}  ·  {date}  ·  {dur}  ·  {division(s)}"))
     out.append(C.dim(f"  {models}  ·  effort: {efforts}"))
+    dn = delegation_note(s)
+    if dn:
+        out.append(C.dim(f"  {dn}"))
     out.append(C.dim("├" + line + "┤"))
     out.append("  " + fever_bar(s) + C.dim("  fever"))
     out.append(C.green(f"  +{s['green']} green results") + "   " + C.red(f"-{s['red']} errors")
@@ -468,16 +510,18 @@ def render_html(s, buffs, final):
     efforts = meta_names(s["efforts"])
     total = s["green"] + s["red"]
     pct = round(100 * s["green"] / total) if total else 0
+    esc = html_mod.escape
+
     def chip(name, kind, value, why):
         glyph = ICONS.get(name, "·")
         tag = (f"+{value}" if kind == "flavor" else f"&times;{round(value, 2)}")
         art = badge_data_uri(name)
         tile = (f'<img class="tile art" src="{art}" alt="">' if art
-                else f'<span class="tile">{glyph}</span>')
-        return (f'<div class="badge {kind}">{tile}'
-                f'<span class="bmeta"><span class="brow"><span class="bname">{name}</span>'
+                else f'<span class="tile">{esc(glyph)}</span>')
+        return (f'<div class="badge {esc(kind)}">{tile}'
+                f'<span class="bmeta"><span class="brow"><span class="bname">{esc(name)}</span>'
                 f'<span class="btag">{tag}</span></span>'
-                f'<span class="bwhy">{why}</span></span></div>')
+                f'<span class="bwhy">{esc(why)}</span></span></div>')
     rows = ('<div class="badges">'
             + "".join(chip(*b) for b in buffs)
             + '</div>')
@@ -522,7 +566,8 @@ def render_html(s, buffs, final):
 </style>
 <div class="lg-card">
 <h1>LLM GRADER</h1>
-<div class="meta">session {s['session_id'][:8]} &middot; {date} &middot; {dur} &middot; {models} &middot; effort: {efforts}</div>
+<div class="meta">session {esc(s['session_id'][:8])} &middot; {esc(date)} &middot; {dur} &middot; {division(s)} &middot; {esc(models)} &middot; effort: {esc(efforts)}</div>
+{f'<div class="meta">{esc(delegation_note(s))}</div>' if delegation_note(s) else ''}
 <div class="fever"><i></i></div>
 <div class="counts"><span class="g">+{s['green']} green results</span> &nbsp; <span class="r">-{s['red']} errors</span> &nbsp; <span class="y">streak {s['longest_streak']}</span></div>
 {tally}{tokens}
@@ -533,17 +578,37 @@ def render_html(s, buffs, final):
 """
 
 
-def find_session(arg):
+def projects_dir(override=None):
+    """Transcript root: --projects-dir flag > $CLAUDE_CONFIG_DIR/projects > default."""
+    if override:
+        return Path(override).expanduser()
+    env = os.environ.get("CLAUDE_CONFIG_DIR")
+    if env:
+        return Path(env).expanduser() / "projects"
+    return PROJECTS_DIR
+
+
+def share_caption(s, buffs, final):
+    """Suggested post text from allowlisted fields only. Copied locally; the
+    user pastes and posts — the score never rides a URL to anyone's server."""
+    core, flat = score_parts(s, buffs)
+    top = " · ".join(f"{ICONS.get(n, '·')} {n}" for n, k, v, _ in buffs[:3])
+    return (f"LLM Grader: +{final:,} (skill {core:,} · comedy {flat:,}) — {division(s)}\n"
+            f"{top}\n(means nothing. sharing it anyway.) #LLMGrader")
+
+
+def find_session(arg, root=None):
     if arg and Path(arg).exists():
         return Path(arg)
-    candidates = sorted(PROJECTS_DIR.glob("*/*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True)
+    base = root or PROJECTS_DIR
+    candidates = sorted(base.glob("*/*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True)
     if arg:  # partial uuid match
         for p in candidates:
             if p.stem.startswith(arg):
                 return p
-        sys.exit(f"no session matching '{arg}' under {PROJECTS_DIR}")
+        sys.exit(f"no session matching '{arg}' under {base}")
     if not candidates:
-        sys.exit(f"no session transcripts found under {PROJECTS_DIR}")
+        sys.exit(f"no session transcripts found under {base}")
     return candidates[0]
 
 
@@ -552,8 +617,12 @@ def main():
     ap.add_argument("session", nargs="?", help="Path to a session .jsonl, a session-uuid prefix, or omit for the most recent session")
     ap.add_argument("--html", nargs="?", const="", metavar="OUT",
                     help="Also write a shareable standalone HTML card (default: ./llm-grader-card-<id>.html)")
+    ap.add_argument("--share", action="store_true",
+                    help="Copy a suggested post caption to the clipboard and open a blank X composer. Nothing is transmitted; you paste and post.")
+    ap.add_argument("--projects-dir", metavar="DIR",
+                    help="Transcript root (default: $CLAUDE_CONFIG_DIR/projects or ~/.claude/projects)")
     args = ap.parse_args()
-    path = find_session(args.session)
+    path = find_session(args.session, projects_dir(args.projects_dir))
     s = analyze(path)
     buffs = pick_buffs(s)
     final = score(s, buffs)
@@ -562,6 +631,13 @@ def main():
         out = Path(args.html) if args.html else Path(f"llm-grader-card-{s['session_id'][:8]}.html")
         out.write_text(render_html(s, buffs, final))
         print(f"\nhtml card: {out.resolve()}")
+    if args.share:
+        caption = share_caption(s, buffs, final)
+        print("\nsuggested caption:\n" + caption)
+        if sys.platform == "darwin":
+            subprocess.run(["pbcopy"], input=caption.encode(), check=False)
+            print("(copied to clipboard)")
+            subprocess.run(["open", "https://x.com/compose/post"], check=False)
 
 
 if __name__ == "__main__":

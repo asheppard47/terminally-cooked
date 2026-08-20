@@ -36,11 +36,11 @@ The streak group (first three rows) is mutually exclusive: only the strongest ap
 |---|---|---|---|
 | Red Wedding | test failure count increased | ×0.6 | ☠ |
 | Error Spiral | ≥4 consecutive errors | ×0.7 | ↺ |
-| Doom Loop | identical Bash command failed ≥3 times; a success resets the run | ×0.7 | ↻ |
+| Doom Loop | identical Bash command failed ≥3 times; a successful rerun of a Bash command resets the run (intervening Reads do not — retrying after looking around is the joke) | ×0.7 | ↻ |
 | Backseat Driver | ≥3 human interruptions | ×0.8 | ‼ |
-| All Plan No Game | entered plan mode, zero edits or writes | ×0.8 | ☰ |
+| All Plan No Game | entered plan mode, zero Edit/Write tool calls (edits made via Bash or MCP tools are invisible to this trigger — known coarseness) | ×0.8 | ☰ |
 | Twenty Questions | agent asked the human ≥4 questions | ×0.9 | ¿ |
-| Third Time's the Charm | exactly 3 consecutive errors, then success | ×0.9 | ☘ |
+| Third Time's the Charm | exactly 3 consecutive errors followed by a successful result (the recovery is required) | ×0.9 | ☘ |
 | Overloaded | tool error matching overloaded / 529 | ×0.9 | ⏻ |
 
 ## Flavor — flat points, never compound
