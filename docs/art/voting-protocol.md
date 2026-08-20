@@ -25,7 +25,26 @@ triggers:
 4. **Comments are first-class.** Voters are explicitly invited to reply with what they would change; a matchup that draws a specific complaint becomes a regeneration candidate regardless of its vote count.
 5. **Judge at display size.** The review gallery shows every render at 1024 px, 72 px and 32 px on the real card background, because the badge ships as a tile, not a poster.
 
-## Current round
+## Round 1 result (closed 2026-08-20)
+
+Three voters completed all 24 matchups — 72 votes, 38 for model B (grok-imagine)
+and 34 for model A (Codex image_gen), 13 badges to 11. **At three votes per
+matchup that model-level split is a coin flip, and it should not be read as one
+model beating the other.** What the round does deliver is a per-badge decision,
+and seven of those were unanimous: DOOM LOOP, CLEAN STREAK and OVERLOADED to
+model A; FLOW STATE, RED WEDDING, ALL PLAN NO GAME and MODEL HOPPER to model B.
+The other seventeen were 2–1 and are winners on thin evidence.
+
+No substantive art comments came back — the group engaged briefly and moved on,
+which is its own signal about drop size. Round 2, if it runs, should post far
+fewer matchups and ask one specific question per post rather than 24 polls in
+five minutes.
+
+Winners are promoted to `assets/badges/` with `manifest.json` recording model,
+vote split and unanimity per badge, so any later re-vote can be compared against
+this baseline.
+
+## Round 1 mechanics
 
 Posted 2026-08-19 to a developer Telegram group: an intro setting context, then 24 matchups, each a side-by-side composite with the achievement's joke as caption followed by its own poll with public voters. Delivery confirmed complete — 24 photos, 24 polls, no failures.
 
