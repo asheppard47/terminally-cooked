@@ -46,8 +46,17 @@ def _text(content):
 
 # ---------------------------------------------------------------- detection
 
+CODEX_ENVELOPE = {"session_meta", "turn_context", "response_item", "event_msg",
+                  "compacted", "world_state"}
+CLAUDE_TYPES = {"last-prompt", "mode", "permission-mode", "user", "assistant",
+                "attachment", "summary", "file-history-snapshot"}
+
+
 def detect_harness(path):
-    """Return 'claude-code' | 'codex' | 'grok' | 'gemini' | None."""
+    """Return 'claude-code' | 'codex' | 'grok' | 'gemini' | None.
+
+    Content-first: sniff up to the first few parseable records (BOM- and
+    blank-line-tolerant), then fall back to home-directory shape."""
     p = Path(path)
     if p.is_dir():
         if (p / "summary.json").exists() and (
@@ -56,25 +65,37 @@ def detect_harness(path):
         return None
     if p.suffix != ".jsonl":
         return None
+    records = []
     try:
-        head = p.open(encoding="utf-8", errors="replace").readline()
-        first = json.loads(head) if head.strip() else {}
-    except (OSError, json.JSONDecodeError):
+        with p.open(encoding="utf-8-sig", errors="replace") as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                try:
+                    records.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+                if len(records) >= 5:
+                    break
+    except OSError:
         return None
-    if isinstance(first, dict):
-        if first.get("type") == "session_meta" or (
-                p.name.startswith("rollout-") and "payload" in first):
+    for first in records:
+        if not isinstance(first, dict):
+            continue
+        if first.get("type") in CODEX_ENVELOPE and "payload" in first:
             return "codex"
         if "sessionId" in first and "projectHash" in first:
             return "gemini"
-        # Claude Code files start with any of several record types; the giveaway
-        # is the sessionId/parentUuid vocabulary or the .claude/projects home.
-        if "parentUuid" in first or first.get("type") in (
-                "last-prompt", "mode", "permission-mode", "user", "assistant",
-                "attachment", "summary", "file-history-snapshot"):
+        # Claude Code's giveaway is its record vocabulary or its home.
+        if "parentUuid" in first or first.get("type") in CLAUDE_TYPES:
             return "claude-code"
-        if ".claude" in str(p.parent):
-            return "claude-code"
+    parent = str(p.parent)
+    if ".claude" in parent:
+        return "claude-code"
+    if ".gemini" in parent:
+        return "gemini"
+    if ".codex" in parent:
+        return "codex"
     return None
 
 
@@ -161,7 +182,29 @@ def _codex_success(text):
     return None            # tri-state: no universal error boolean in rollouts
 
 
+def _codex_command(p):
+    """Extract a command string from either call shape. custom_tool_call carries
+    a raw input string; function_call packs JSON arguments."""
+    if isinstance(p.get("input"), str):
+        return p["input"]
+    args = p.get("arguments")
+    if isinstance(args, str):
+        try:
+            parsed = json.loads(args)
+        except json.JSONDecodeError:
+            return None
+        for key in ("command", "cmd", "script"):
+            v = parsed.get(key) if isinstance(parsed, dict) else None
+            if isinstance(v, str):
+                return v
+            if isinstance(v, list):
+                return " ".join(str(x) for x in v)
+    return None
+
+
 def _codex_events(path):
+    last_totals = None       # token_count records are cumulative snapshots:
+    last_totals_ts = None    # summing per-snapshot usage double-counts turns
     for rec in _iter_jsonl(path):
         ts = rec.get("timestamp")
         rtype = rec.get("type")
@@ -176,6 +219,9 @@ def _codex_events(path):
             if p.get("approval_policy") == "never" and (
                     "danger" in sandbox or "full" in sandbox):
                 yield {"kind": "permission", "mode": "bypass", "ts": ts}
+            collab = p.get("collaboration_mode") or {}
+            if isinstance(collab, dict) and collab.get("kind") == "plan":
+                yield {"kind": "permission", "mode": "plan", "ts": ts}
         elif rtype == "event_msg":
             st = p.get("type")
             if st == "user_message":
@@ -183,23 +229,27 @@ def _codex_events(path):
             elif st == "turn_aborted":
                 yield {"kind": "interrupt", "ts": ts}
             elif st == "token_count":
-                u = (p.get("info") or {}).get("last_token_usage") or {}
-                if u:
-                    yield {"kind": "usage", "ts": ts,
-                           "input": (u.get("input_tokens", 0)
-                                     + u.get("cached_input_tokens", 0)
-                                     + u.get("cache_write_input_tokens", 0)),
-                           "output": u.get("output_tokens", 0)}
+                tot = (p.get("info") or {}).get("total_token_usage") or {}
+                if tot:
+                    last_totals, last_totals_ts = tot, ts
         elif rtype == "response_item":
             st = p.get("type")
-            if st in ("function_call", "custom_tool_call"):
-                cmd = p.get("input") if isinstance(p.get("input"), str) else None
+            if st == "message" and p.get("role") == "user":
+                # current rollouts may carry user turns only here
+                yield {"kind": "human", "ts": ts}
+            elif st in ("function_call", "custom_tool_call"):
                 yield {"kind": "tool_call", "id": p.get("call_id"),
-                       "name": p.get("name", "?"), "command": cmd, "ts": ts}
+                       "name": p.get("name", "?"),
+                       "command": _codex_command(p), "ts": ts}
             elif st in ("function_call_output", "custom_tool_call_output"):
                 text = _text(p.get("output"))
                 yield {"kind": "tool_result", "id": p.get("call_id"),
                        "success": _codex_success(text), "text": text, "ts": ts}
+    if last_totals:
+        # input_tokens already includes cached tokens (total == input + output)
+        yield {"kind": "usage", "ts": last_totals_ts,
+               "input": last_totals.get("input_tokens", 0) or 0,
+               "output": last_totals.get("output_tokens", 0) or 0}
 
 
 # ---------------------------------------------------------------- grok
@@ -255,9 +305,11 @@ GEMINI_STATUS = {"success": True, "completed": True, "confirmed": True,
 
 
 def _gemini_events(path):
-    seen_calls = {}
+    called = set()       # call ids whose tool_call was emitted
+    resolved = set()     # call ids whose TERMINAL result was emitted
+    anon = 0
     for rec in _iter_jsonl(path):
-        if "$set" in rec or "sessionId" in rec and "projectHash" in rec:
+        if "$set" in rec or ("sessionId" in rec and "projectHash" in rec):
             continue
         ts = rec.get("timestamp")
         rtype = rec.get("type")
@@ -270,23 +322,27 @@ def _gemini_events(path):
             tok = rec.get("tokens") or {}
             if tok:
                 yield {"kind": "usage", "ts": ts,
-                       "input": tok.get("input", 0) + tok.get("cached", 0),
-                       "output": tok.get("output", 0)}
+                       "input": (tok.get("input") or 0) + (tok.get("cached") or 0),
+                       "output": tok.get("output") or 0}
             for call in rec.get("toolCalls") or []:
                 cid = call.get("id")
-                status = call.get("status")
+                if cid is None:
+                    anon += 1
+                    cid = f"_anon_{anon}"
+                status = str(call.get("status") or "").lower()
                 # records repeat with the same message id as calls progress;
-                # emit each call once, and its result once a status appears
-                if cid not in seen_calls:
-                    seen_calls[cid] = None
+                # emit the call once, and the result only on a TERMINAL status
+                # ("running"/"pending" must not lock the outcome as unknown)
+                if cid not in called:
+                    called.add(cid)
                     args = call.get("args") or {}
                     cmd = args.get("command") if isinstance(args.get("command"), str) else None
                     yield {"kind": "tool_call", "id": cid,
                            "name": call.get("name", "?"), "command": cmd, "ts": ts}
-                if status and seen_calls[cid] is None:
-                    seen_calls[cid] = status
+                if status in GEMINI_STATUS and cid not in resolved:
+                    resolved.add(cid)
                     yield {"kind": "tool_result", "id": cid,
-                           "success": GEMINI_STATUS.get(str(status).lower()),
+                           "success": GEMINI_STATUS[status],
                            "text": _text(call.get("resultDisplay")), "ts": ts}
 
 

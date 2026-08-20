@@ -384,9 +384,18 @@ def test_detect_and_grade_codex_fixture():
          "payload": {"type": "custom_tool_call_output", "call_id": "c2",
                      "output": [{"type": "input_text", "text": "no exit info"}]}},
         {"timestamp": "2026-08-20T10:00:07.000Z", "type": "compacted", "payload": {}},
+        # cumulative snapshots: only the FINAL totals may be counted, and
+        # input_tokens already includes cached tokens (no double add)
         {"timestamp": "2026-08-20T10:00:08.000Z", "type": "event_msg",
-         "payload": {"type": "token_count", "info": {"last_token_usage": {
-             "input_tokens": 100, "cached_input_tokens": 900, "output_tokens": 50}}}},
+         "payload": {"type": "token_count", "info": {"total_token_usage": {
+             "input_tokens": 500, "cached_input_tokens": 400, "output_tokens": 20}}}},
+        {"timestamp": "2026-08-20T10:00:09.000Z", "type": "event_msg",
+         "payload": {"type": "token_count", "info": {"total_token_usage": {
+             "input_tokens": 1000, "cached_input_tokens": 900, "output_tokens": 50}}}},
+        # current rollouts may carry user turns only as role-user messages
+        {"timestamp": "2026-08-20T10:00:10.000Z", "type": "response_item",
+         "payload": {"type": "message", "role": "user",
+                     "content": [{"type": "input_text", "text": "again"}]}},
     ]
     _write(p, recs)
     assert detect_harness(p) == "codex"
@@ -395,8 +404,70 @@ def test_detect_and_grade_codex_fixture():
     assert s["green"] == 1 and s["red"] == 0 and s["unknown_results"] == 1
     assert s["yolo_mode"] is True            # never + danger sandbox
     assert s["compactions"] == 1
-    assert s["tokens_in"] == 1000 and s["tokens_out"] == 50
+    assert s["tokens_in"] == 1000 and s["tokens_out"] == 50   # final totals only
     assert s["efforts"] == {"high": 1}
+    assert s["user_prompts"] == 2            # event_msg + role-user variants
+
+
+def test_codex_function_call_command_extraction():
+    from harness_adapters import _codex_command
+    assert _codex_command({"input": "pytest -q"}) == "pytest -q"
+    assert _codex_command({"arguments": json.dumps({"command": "make test"})}) == "make test"
+    assert _codex_command({"arguments": json.dumps({"cmd": ["go", "test"]})}) == "go test"
+    assert _codex_command({"arguments": "not json"}) is None
+    assert _codex_command({}) is None
+
+
+def test_gemini_running_status_does_not_lock_unknown():
+    from harness_adapters import detect_harness
+    import tempfile, os
+    d = tempfile.mkdtemp()
+    p = os.path.join(d, "session-2026-08-20T11-00-aaaa1111.jsonl")
+    running = {"id": "g9", "name": "run_shell_command",
+               "args": {"command": "ls"}, "status": "running"}
+    done = dict(running, status="success", resultDisplay="ok")
+    _write(p, [
+        {"sessionId": "aaaa1111", "projectHash": "ff", "kind": "main"},
+        {"id": "m1", "timestamp": "2026-08-20T11:00:01.000Z", "type": "gemini",
+         "content": "", "toolCalls": [running]},
+        {"id": "m1", "timestamp": "2026-08-20T11:00:02.000Z", "type": "gemini",
+         "content": "", "toolCalls": [done]},
+    ])
+    s = analyze(p)
+    assert s["green"] == 1 and s["unknown_results"] == 0, (s["green"], s["unknown_results"])
+
+
+def test_unknown_results_never_fill_clean_windows():
+    # five unknown-outcome results in a completed window must NOT make it clean
+    recs = [prompt(ts="2026-08-19T10:00:00.000Z")]
+    for i in range(6):
+        ts = f"2026-08-19T10:{i*3:02d}:01.000Z"
+        recs.append(asst([tool_use("Bash", f"u{i}", command=f"s{i}")], ts=ts))
+        # claude adapter has no unknowns, so build the window via analyze on a
+        # synthetic codex file instead
+    import tempfile, os
+    d = tempfile.mkdtemp()
+    p = os.path.join(d, "rollout-2026-08-20T11-00-01a00000-0000-7000-8000-00000000000f.jsonl")
+    rows = [{"timestamp": "2026-08-20T10:00:00.000Z", "type": "session_meta",
+             "payload": {"session_id": "x"}}]
+    for i in range(6):
+        ts = f"2026-08-20T10:{i*3:02d}:01.000Z"
+        rows.append({"timestamp": ts, "type": "response_item",
+                     "payload": {"type": "custom_tool_call", "call_id": f"c{i}",
+                                 "name": "exec", "input": f"s{i}"}})
+        rows.append({"timestamp": ts, "type": "response_item",
+                     "payload": {"type": "custom_tool_call_output", "call_id": f"c{i}",
+                                 "output": "no exit info"}})   # unknown outcome
+    rows.append({"timestamp": "2026-08-20T10:41:00.000Z", "type": "response_item",
+                 "payload": {"type": "custom_tool_call", "call_id": "z",
+                             "name": "exec", "input": "z"}})
+    rows.append({"timestamp": "2026-08-20T10:41:01.000Z", "type": "response_item",
+                 "payload": {"type": "custom_tool_call_output", "call_id": "z",
+                             "output": "Exit code: 0"}})
+    _write(p, rows)
+    s = analyze(p)
+    assert s["unknown_results"] == 6
+    assert s["clean_window_chain"] == 0, s["clean_window_chain"]
 
 
 def test_detect_and_grade_grok_fixture():
