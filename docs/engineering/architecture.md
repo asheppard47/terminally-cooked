@@ -15,21 +15,27 @@ triggers:
 ---
 # Architecture
 
-**A single-file pipeline with four separable stages — locate, analyze, judge, render — where each stage hands the next a plain data structure and only the render stage knows about presentation.** The separation is what lets the scoring doctrine change without touching parsing, and lets a second renderer exist without duplicating logic.
+**A two-module pipeline — harness adapters normalize any supported CLI's session into one event stream; the grader consumes events through five separable stages: locate, analyze, judge, render, share.** Parsing knowledge lives entirely in `harness_adapters.py`; `grade_session.py` never touches a harness-specific field, which is what let three new harnesses land without changing a line of scoring.
 
 ## Data flow
 
 ```
-find_session(arg)        → path to one session .jsonl
+find_session(arg)         → path (file or session directory)
    ↓
-analyze(path)            → stats dict: counts, streaks, windows, metadata, sha
+detect_harness(path)      → claude-code | codex | grok | gemini   (content sniff)
    ↓
-pick_buffs(stats)        → [(name, class, value, reason), …]
+iter_events(path)         → normalized events (human / tool_call / tool_result /
+   ↓                        model / usage / permission / compaction / interrupt)
+analyze(path)             → stats dict: counts, streaks, windows, metadata, sha
    ↓
-score_parts(stats, buffs)→ (core, flat)
+pick_buffs(stats)         → [(name, class, value, reason), …]
    ↓
-render / render_html     → ANSI card, HTML card
+score_parts(stats, buffs) → (core, flat)
+   ↓
+render / render_html      → ANSI card, HTML card (adapter stamped in provenance)
 ```
+
+Tool-result success is **tri-state** (`True | False | None`): unknown outcomes (common in Codex rollouts, which carry no universal error boolean) count toward neither streaks nor spirals and surface on the card as `?N unknown`.
 
 ## Responsibilities
 
