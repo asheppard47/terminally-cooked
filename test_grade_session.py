@@ -638,6 +638,66 @@ def test_pick_prefers_longer_session_over_one_minute_blitz():
     assert picked.resolve() == haul.resolve(), (picked, note)
 
 
+def test_juice_counts_unknowns_and_rejects_probes():
+    from grade_session import juice_score
+    work = _min_s(green=0, red=0, unknown_results=40,
+                  first_ts="2026-08-20T10:00:00.000Z",
+                  last_ts="2026-08-20T10:30:00.000Z")
+    probe = _min_s(green=80, red=0, unknown_results=0,
+                   first_ts="2026-08-20T10:00:00.000Z",
+                   last_ts="2026-08-20T10:01:00.000Z")
+    assert juice_score(work) > juice_score(probe)
+    assert juice_score(work) == 40
+
+
+def test_pick_rejects_high_volume_one_minute_blitz():
+    from datetime import timedelta
+    from grade_session import pick_juicy_session
+    home = Path(tempfile.mkdtemp())
+    now = datetime.now(timezone.utc)
+    today = now.replace(hour=12, minute=0, second=0, microsecond=0)
+    live = _grok_sess(home, "live0000-0000-7000-8000-000000000001",
+                      n_green=2, start=today, minutes=2, mtime=now.timestamp())
+    blitz = _grok_sess(home, "blitz000-0000-7000-8000-00000000000c",
+                       n_green=80, start=today - timedelta(minutes=10),
+                       minutes=1, mtime=now.timestamp() - 600)
+    haul = _grok_sess(home, "haul0000-0000-7000-8000-00000000000d",
+                      n_green=14, start=today - timedelta(hours=2),
+                      minutes=30, mtime=now.timestamp() - 7200)
+    picked, note = pick_juicy_session(home=home, now=now, live_ids=[])
+    assert picked.resolve() == haul.resolve(), (picked, note)
+
+
+def test_pick_claude_cwd_skips_newest_in_project():
+    import os
+    from grade_session import pick_juicy_session, claude_project_slug
+    home = Path(tempfile.mkdtemp())
+    cwd = Path("/Users/office/repos/personal/Game Dev")
+    slug = claude_project_slug(cwd)
+    d = Path(home) / ".claude" / "projects" / slug
+    d.mkdir(parents=True)
+    now = datetime.now(timezone.utc).timestamp()
+
+    def claude_jsonl(name, n_green, mtime):
+        recs = [prompt(ts="2026-08-20T10:00:00.000Z")]
+        for i in range(n_green):
+            recs.append(asst([tool_use("Bash", f"t{i}", command="ls")],
+                             ts=f"2026-08-20T10:{i:02d}:00.000Z"))
+            recs.append(result(f"t{i}", "ok", ts=f"2026-08-20T10:{i:02d}:05.000Z"))
+        recs[-1]["timestamp"] = "2026-08-20T10:40:00.000Z"
+        p = d / name
+        _write(p, recs)
+        os.utime(p, (mtime, mtime))
+        return p
+
+    live = claude_jsonl("aaaaaaaa-1111-4000-8000-000000000001.jsonl", 8, now)
+    other = claude_jsonl("bbbbbbbb-2222-4000-8000-000000000002.jsonl", 20, now - 3600)
+    picked, note = pick_juicy_session(
+        home=home, live_ids=[], env={}, cwd=cwd)
+    assert picked.resolve() == other.resolve(), (picked, note)
+    assert "aaaaaaaa" in note
+
+
 def test_pick_skips_invoker_even_when_not_newest():
     """The live session is identified by id, not by being the newest file."""
     from datetime import timedelta

@@ -632,13 +632,29 @@ def is_invoking_session(path, live_ids):
     return False
 
 
-def live_paths(cands, live_ids=None):
-    """Sessions this process is currently writing. Env ids win; else newest mtime."""
+def claude_project_slug(cwd):
+    return str(Path(cwd)).replace("/", "-").replace(" ", "-")
+
+
+def live_paths(cands, live_ids=None, env=None, cwd=None):
+    """Sessions this process is currently writing. Env ids win.
+
+    Claude Code often has no session-id env: fall back to the newest jsonl in
+    this cwd's project folder. Last resort is global newest mtime.
+    """
+    env = os.environ if env is None else env
     if live_ids is None:
-        live_ids = invoking_ids()
+        live_ids = invoking_ids(env)
     matched = [p for p in cands if is_invoking_session(p, live_ids)]
     if matched:
         return matched
+    grokish = env.get("GROK_AGENT") or env.get("GROK_SESSION_ID")
+    codexish = env.get("CODEX_THREAD_ID") or env.get("CODEX_SESSION_ID")
+    if not grokish and not codexish:
+        slug = claude_project_slug(cwd or Path.cwd())
+        same = [p for p in cands if p.suffix == ".jsonl" and p.parent.name == slug]
+        if same:
+            return [max(same, key=session_mtime)]
     if cands:
         return [max(cands, key=session_mtime)]
     return []
@@ -652,22 +668,26 @@ def session_label(path):
 def juice_score(s):
     """How much of a session there is to roast. Not the entertainment score.
 
-    A 1-minute probe with a handful of calls loses to a real work session with
-    the same call count. The live session is excluded before this runs.
+    Unknown Codex outcomes count as activity (they are real tool calls).
+    Sub-5-minute sessions score near-zero so a fat probe cannot beat a
+    shorter real work session. Probes only win if nothing longer exists.
     """
-    tools = s["green"] + s["red"]
+    tools = s["green"] + s["red"] + s.get("unknown_results", 0)
     if tools == 0:
         return 0
     mins = duration_minutes(s) or 1
-    length = 1.0 if mins >= 15 else 0.45 if mins >= 5 else 0.15
+    if mins < 5:
+        return tools * 1e-6
+    length = 1.0 if mins >= 15 else 0.45
     return tools * length
 
 
-def pick_juicy_session(home=None, now=None, claude_projects=None, live_ids=None):
+def pick_juicy_session(home=None, now=None, claude_projects=None, live_ids=None,
+                      env=None, cwd=None):
     """Return (path, skip-note). Never returns the invoking session.
 
     live_ids come from harness env (GROK_SESSION_ID, CODEX_THREAD_ID, …).
-    When those are absent, fall back to newest mtime as a last resort.
+    When those are absent, fall back to cwd-scoped Claude then newest mtime.
     """
     home = Path(home or default_home())
     now = now or datetime.now().astimezone()
@@ -675,7 +695,7 @@ def pick_juicy_session(home=None, now=None, claude_projects=None, live_ids=None)
     cands = [p for p in list_sessions(home, claude_projects) if session_bytes(p) <= MAX_PICK_BYTES]
     if not cands:
         return None, "no session transcripts found"
-    live = live_paths(cands, live_ids)
+    live = live_paths(cands, live_ids, env=env, cwd=cwd)
     live_resolved = {p.resolve() for p in live}
     rest = [p for p in cands if p.resolve() not in live_resolved]
     skipped = ", ".join(session_label(p) for p in live) or "live session"
@@ -685,9 +705,9 @@ def pick_juicy_session(home=None, now=None, claude_projects=None, live_ids=None)
     recent = [p for p in rest if session_mtime(p) >= cutoff] or rest
     midnight = now.astimezone().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
     today_files = [p for p in rest if session_mtime(p) >= midnight]
-    lookback_big = sorted(recent, key=session_bytes, reverse=True)[:PICK_ANALYZE_CAP]
+    lookback_recent = sorted(recent, key=session_mtime, reverse=True)[:PICK_ANALYZE_CAP]
     shortlist, seen = [], set()
-    for p in today_files + lookback_big:
+    for p in today_files + lookback_recent:
         rp = p.resolve()
         if rp in seen:
             continue
@@ -720,7 +740,7 @@ def pick_juicy_session(home=None, now=None, claude_projects=None, live_ids=None)
     if not chosen:
         return None, f"skipped live session {skipped}; no other sessions today or in the last {PICK_LOOKBACK_DAYS} days"
     path, stats, _ = max(chosen, key=lambda t: t[2])
-    tools = stats["green"] + stats["red"]
+    tools = stats["green"] + stats["red"] + stats.get("unknown_results", 0)
     note = (f"skipped live session {skipped}; "
             f"picked {session_label(path)} ({tools} results)")
     return path, note
