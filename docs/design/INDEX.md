@@ -22,6 +22,7 @@ triggers:
 | [scoring-model.md](./scoring-model.md) | How does a transcript become a number, and what does that number claim? |
 | [modifier-catalog.md](./modifier-catalog.md) | Which achievements exist, what triggers each, and what is it worth? |
 | [card-spec.md](./card-spec.md) | What does the output look like and which fields may appear? |
+| [harness-adapters.md](./harness-adapters.md) | How would other agent CLIs (Codex, Grok, Gemini) be graded — detection, mapping, adapter design? |
 
 ## The design thesis in one line
 
