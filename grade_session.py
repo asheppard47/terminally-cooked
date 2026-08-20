@@ -23,6 +23,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+from harness_adapters import detect_harness, iter_events, session_identity
+
 SCORING_VERSION = "scoring-v0.5 (entertainment only)"
 CHAIN_PRODUCT_CAP = 6.0     # stacked chain multipliers cap ("within reason")
 STREAK_EXP = 1.5            # serialized-event chain superlinearity
@@ -64,15 +66,21 @@ def tool_result_text(block):
     return ""
 
 
-def analyze(path):
+def analyze(path, harness=None):
+    """Grade one session from any supported harness. Detection is automatic;
+    parsing is delegated to harness_adapters, bookkeeping happens here."""
+    harness = harness or detect_harness(path) or "claude-code"
+    session_id, hash_path = session_identity(path, harness)
     s = {
-        "session_id": Path(path).stem,
-        "transcript_sha": hashlib.sha256(Path(path).read_bytes()).hexdigest(),
+        "session_id": session_id,
+        "harness": harness,
+        "transcript_sha": hashlib.sha256(Path(hash_path).read_bytes()).hexdigest(),
         "models": {},
         "efforts": {},
         "tools": {},
         "green": 0,
         "red": 0,
+        "unknown_results": 0,   # tri-state: results with no derivable success flag
         "longest_streak": 0,
         "worst_spiral": 0,
         "interruptions": 0,
@@ -96,10 +104,10 @@ def analyze(path):
     streak = spiral = cook = 0
     windows = {}       # window index -> [events, errors]
     tallies = {}       # normalized test command -> [first_tally, last_tally, samples]
-    pending_bash = {}   # tool_use id -> command string (never rendered)
+    pending = {}       # tool call id -> command string (never rendered)
     last_failed_cmd, doom_run = None, 0
-    for rec in iter_records(path):
-        ts = rec.get("timestamp")
+    for ev in iter_events(path, harness):
+        ts = ev.get("ts")
         if ts:
             s["first_ts"] = s["first_ts"] or ts
             s["last_ts"] = ts
@@ -109,105 +117,84 @@ def analyze(path):
                     s["night_events"] += 1
             except ValueError:
                 pass
-        if rec.get("isCompactSummary"):
+        kind = ev["kind"]
+        if kind == "compaction":
             s["compactions"] += 1
-        rtype = rec.get("type")
-        if rtype == "permission-mode":
-            mode = str(rec.get("permissionMode", ""))
-            if mode == "bypassPermissions":
+        elif kind == "permission":
+            if ev["mode"] == "bypass":
                 s["yolo_mode"] = True
-            elif mode == "plan":
+            elif ev["mode"] == "plan":
                 s["plan_entries"] += 1
-        elif rtype == "assistant":
-            msg = rec.get("message") or {}
-            model = msg.get("model")
-            if model and not model.startswith("<"):
-                s["models"][model] = s["models"].get(model, 0) + 1
-            effort = rec.get("effort")
-            if effort:
-                s["efforts"][effort] = s["efforts"].get(effort, 0) + 1
-            usage = msg.get("usage") or {}
-            s["tokens_in"] += (usage.get("input_tokens", 0)
-                               + usage.get("cache_read_input_tokens", 0)
-                               + usage.get("cache_creation_input_tokens", 0))
-            s["tokens_out"] += usage.get("output_tokens", 0)
-            for block in msg.get("content") or []:
-                if isinstance(block, dict) and block.get("type") == "tool_use":
-                    name = block.get("name", "?")
-                    s["tools"][name] = s["tools"].get(name, 0) + 1
-                    if name == "Bash":
-                        cmd = (block.get("input") or {}).get("command")
-                        if isinstance(cmd, str):
-                            pending_bash[block.get("id")] = cmd.strip()
-        elif rtype == "user":
-            content = (rec.get("message") or {}).get("content")
-            if isinstance(content, str):
-                s["user_prompts"] += 1
-                cook = 0
-                if INTERRUPT_MARKER in content:
-                    s["interruptions"] += 1
-                continue
-            if not isinstance(content, list):
-                continue
-            saw_tool_result = False
-            for block in content:
-                if not isinstance(block, dict):
-                    continue
-                if block.get("type") == "text":
-                    cook = 0
-                    if INTERRUPT_MARKER in block.get("text", ""):
-                        s["interruptions"] += 1
-                if block.get("type") != "tool_result":
-                    continue
-                saw_tool_result = True
-                if ts and s["first_ts"]:
-                    try:
-                        t0 = datetime.fromisoformat(s["first_ts"].replace("Z", "+00:00"))
-                        tn = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-                        wi = int((tn - t0).total_seconds() // WINDOW_SECS)
-                        if wi >= 0:  # out-of-order timestamps never land in a bucket
-                            w = windows.setdefault(wi, [0, 0])
-                            w[0] += 1
-                            if block.get("is_error"):
-                                w[1] += 1
-                    except ValueError:
-                        pass
-                cmd = pending_bash.pop(block.get("tool_use_id"), None)
-                if block.get("is_error"):
-                    s["red"] += 1
-                    cook = 0  # an error breaks the unsupervised-success chain
-                    if OVERLOAD_RE.search(tool_result_text(block)):
-                        s["overloads"] += 1
-                    if cmd is not None:
-                        doom_run = doom_run + 1 if cmd == last_failed_cmd else 1
-                        last_failed_cmd = cmd
-                        s["worst_doom_loop"] = max(s["worst_doom_loop"], doom_run)
-                    spiral += 1
-                    s["worst_spiral"] = max(s["worst_spiral"], spiral)
-                    streak = 0
-                else:
-                    s["green"] += 1
-                    cook += 1  # unsupervised-success chain grows on green results only
-                    s["longest_cook"] = max(s["longest_cook"], cook)
-                    if cmd is not None:
-                        last_failed_cmd, doom_run = None, 0
-                    streak += 1
-                    s["longest_streak"] = max(s["longest_streak"], streak)
-                    if spiral == 3:
-                        s["charm"] = True   # exactly three errors, then this success
-                    spiral = 0
-                if cmd is not None and TEST_CMD_RE.search(cmd):
-                    m = TALLY_RE.search(tool_result_text(block))
-                    if m:
-                        tally = (int(m.group(1)), int(m.group(2) or 0))
-                        # per-command tracking: deltas only compare like with like,
-                        # so a full-suite run followed by one focused test can't
-                        # register as a fictional regression
-                        entry = tallies.setdefault(" ".join(cmd.split()), [tally, tally, 0])
-                        entry[1] = tally
-                        entry[2] += 1
-            if not saw_tool_result:
-                s["user_prompts"] += 1
+        elif kind == "model":
+            if ev.get("model"):
+                s["models"][ev["model"]] = s["models"].get(ev["model"], 0) + 1
+            if ev.get("effort"):
+                s["efforts"][ev["effort"]] = s["efforts"].get(ev["effort"], 0) + 1
+        elif kind == "usage":
+            s["tokens_in"] += ev.get("input", 0)
+            s["tokens_out"] += ev.get("output", 0)
+        elif kind == "human":
+            s["user_prompts"] += 1
+            cook = 0
+        elif kind == "interrupt":
+            s["interruptions"] += 1
+        elif kind == "tool_call":
+            name = ev.get("name", "?")
+            s["tools"][name] = s["tools"].get(name, 0) + 1
+            if isinstance(ev.get("command"), str):
+                pending[ev.get("id")] = ev["command"].strip()
+        elif kind == "tool_result":
+            success = ev.get("success")
+            if ts and s["first_ts"]:
+                try:
+                    t0 = datetime.fromisoformat(s["first_ts"].replace("Z", "+00:00"))
+                    tn = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                    wi = int((tn - t0).total_seconds() // WINDOW_SECS)
+                    if wi >= 0:  # out-of-order timestamps never land in a bucket
+                        w = windows.setdefault(wi, [0, 0])
+                        w[0] += 1
+                        if success is False:
+                            w[1] += 1
+                except ValueError:
+                    pass
+            cmd = pending.pop(ev.get("id"), None)
+            text = ev.get("text", "")
+            if success is None:
+                # tri-state: unknown outcomes touch neither streaks nor spirals
+                s["unknown_results"] += 1
+            elif success is False:
+                s["red"] += 1
+                cook = 0  # an error breaks the unsupervised-success chain
+                if OVERLOAD_RE.search(text):
+                    s["overloads"] += 1
+                if cmd is not None:
+                    doom_run = doom_run + 1 if cmd == last_failed_cmd else 1
+                    last_failed_cmd = cmd
+                    s["worst_doom_loop"] = max(s["worst_doom_loop"], doom_run)
+                spiral += 1
+                s["worst_spiral"] = max(s["worst_spiral"], spiral)
+                streak = 0
+            else:
+                s["green"] += 1
+                cook += 1  # unsupervised-success chain grows on green results only
+                s["longest_cook"] = max(s["longest_cook"], cook)
+                if cmd is not None:
+                    last_failed_cmd, doom_run = None, 0
+                streak += 1
+                s["longest_streak"] = max(s["longest_streak"], streak)
+                if spiral == 3:
+                    s["charm"] = True   # exactly three errors, then this success
+                spiral = 0
+            if success is not None and cmd is not None and TEST_CMD_RE.search(cmd):
+                m = TALLY_RE.search(text)
+                if m:
+                    tally = (int(m.group(1)), int(m.group(2) or 0))
+                    # per-command tracking: deltas only compare like with like,
+                    # so a full-suite run followed by one focused test can't
+                    # register as a fictional regression
+                    entry = tallies.setdefault(" ".join(cmd.split()), [tally, tally, 0])
+                    entry[1] = tally
+                    entry[2] += 1
     # pick the tally pair from the most-sampled test command (>=2 samples),
     # so first/last always describe the same suite
     picked = max(tallies.values(), key=lambda e: e[2], default=None)
@@ -464,8 +451,9 @@ def render(s, buffs, final):
         out.append(C.dim(f"  {dn}"))
     out.append(C.dim("├" + line + "┤"))
     out.append("  " + fever_bar(s) + C.dim("  fever"))
+    unknown = f"   ?{s['unknown_results']} unknown" if s.get("unknown_results") else ""
     out.append(C.green(f"  +{s['green']} green results") + "   " + C.red(f"-{s['red']} errors")
-               + "   " + C.yellow(f"streak {s['longest_streak']}"))
+               + "   " + C.yellow(f"streak {s['longest_streak']}") + C.dim(unknown))
     ft, lt = s["first_tally"], s["last_tally"]
     if ft and lt:
         out.append(C.red(f"  - # {ft[0]} passed, {ft[1]} failed"))
@@ -488,7 +476,7 @@ def render(s, buffs, final):
     core, flat = score_parts(s, buffs)
     out.append(C.bold(f"  FINAL: {C.yellow(f'+{final:,}')}")
                + C.dim(f"  (skill {core:,} · comedy {flat:,} · means nothing. share it anyway.)"))
-    out.append(C.dim(f"  {SCORING_VERSION} · {fingerprint(s)}"))
+    out.append(C.dim(f"  {SCORING_VERSION} · adapter {s.get('harness', 'claude-code')} · {fingerprint(s)}"))
     out.append(C.dim("└" + line + "┘"))
     return "\n".join(out)
 
@@ -573,7 +561,7 @@ def render_html(s, buffs, final):
 {tally}{tokens}
 {rows}
 <div class="final">+{final:,} <span class="fine">(skill {core:,} &middot; comedy {flat:,} &middot; means nothing. share it anyway.)</span></div>
-<div class="fine">{SCORING_VERSION} &middot; {fingerprint(s)}</div>
+<div class="fine">{SCORING_VERSION} &middot; adapter {esc(s.get('harness', 'claude-code'))} &middot; {fingerprint(s)}</div>
 </div></div>
 """
 

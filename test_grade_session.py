@@ -166,7 +166,8 @@ def _min_s(**over):
          "first_ts": None, "last_ts": None, "user_prompts": 0, "tokens_in": 0,
          "tokens_out": 0, "yolo_mode": False, "plan_entries": 0, "overloads": 0,
          "longest_cook": 0, "night_events": 0, "worst_doom_loop": 0,
-         "clean_window_chain": 0, "charm": False}
+         "clean_window_chain": 0, "charm": False, "unknown_results": 0,
+         "harness": "claude-code"}
     s.update(over)
     return s
 
@@ -349,6 +350,129 @@ def test_badge_art_embedded_without_paths():
         assert "data:image/png;base64," in html
         assert "assets/badges" not in html
         assert "/Users/" not in html
+
+
+def _write(path, records):
+    with open(path, "w") as f:
+        for r in records:
+            f.write(json.dumps(r) + "\n")
+
+
+def test_detect_and_grade_codex_fixture():
+    from harness_adapters import detect_harness
+    import tempfile, os
+    d = tempfile.mkdtemp()
+    p = os.path.join(d, "rollout-2026-08-20T10-00-00-01a00000-0000-7000-8000-000000000001.jsonl")
+    recs = [
+        {"timestamp": "2026-08-20T10:00:00.000Z", "type": "session_meta",
+         "payload": {"session_id": "01a00000-0000-7000-8000-000000000001"}},
+        {"timestamp": "2026-08-20T10:00:01.000Z", "type": "turn_context",
+         "payload": {"model": "gpt-5.6-sol", "effort": "high",
+                     "approval_policy": "never", "sandbox_policy": {"mode": "danger-full-access"}}},
+        {"timestamp": "2026-08-20T10:00:02.000Z", "type": "event_msg",
+         "payload": {"type": "user_message", "message": "go"}},
+        {"timestamp": "2026-08-20T10:00:03.000Z", "type": "response_item",
+         "payload": {"type": "function_call", "call_id": "c1", "name": "shell",
+                     "arguments": "{}"}},
+        {"timestamp": "2026-08-20T10:00:04.000Z", "type": "response_item",
+         "payload": {"type": "function_call_output", "call_id": "c1",
+                     "output": "done\nExit code: 0"}},
+        {"timestamp": "2026-08-20T10:00:05.000Z", "type": "response_item",
+         "payload": {"type": "custom_tool_call", "call_id": "c2", "name": "exec",
+                     "input": "pytest -q"}},
+        {"timestamp": "2026-08-20T10:00:06.000Z", "type": "response_item",
+         "payload": {"type": "custom_tool_call_output", "call_id": "c2",
+                     "output": [{"type": "input_text", "text": "no exit info"}]}},
+        {"timestamp": "2026-08-20T10:00:07.000Z", "type": "compacted", "payload": {}},
+        {"timestamp": "2026-08-20T10:00:08.000Z", "type": "event_msg",
+         "payload": {"type": "token_count", "info": {"last_token_usage": {
+             "input_tokens": 100, "cached_input_tokens": 900, "output_tokens": 50}}}},
+    ]
+    _write(p, recs)
+    assert detect_harness(p) == "codex"
+    s = analyze(p)
+    assert s["harness"] == "codex"
+    assert s["green"] == 1 and s["red"] == 0 and s["unknown_results"] == 1
+    assert s["yolo_mode"] is True            # never + danger sandbox
+    assert s["compactions"] == 1
+    assert s["tokens_in"] == 1000 and s["tokens_out"] == 50
+    assert s["efforts"] == {"high": 1}
+
+
+def test_detect_and_grade_grok_fixture():
+    from harness_adapters import detect_harness
+    import tempfile, os
+    d = tempfile.mkdtemp()
+    sess = os.path.join(d, "019f0000-0000-7000-8000-000000000abc")
+    os.makedirs(os.path.join(sess, "compaction_checkpoints"))
+    open(os.path.join(sess, "compaction_checkpoints", "cp1"), "w").write("x")
+    open(os.path.join(sess, "summary.json"), "w").write("{}")
+    _write(os.path.join(sess, "events.jsonl"), [
+        {"ts": "2026-08-20T10:00:00.000Z", "type": "turn_started",
+         "session_id": "019f0000", "model_id": "grok-4.6", "yolo_mode": True,
+         "session_relationship": "primary"},
+        {"ts": "2026-08-20T10:00:01.000Z", "type": "tool_completed",
+         "tool_name": "read_file", "outcome": "success", "tool_call_id": "t1"},
+        {"ts": "2026-08-20T10:00:02.000Z", "type": "tool_completed",
+         "tool_name": "shell", "outcome": "error", "tool_call_id": "t2"},
+        {"ts": "2026-08-20T10:00:03.000Z", "type": "tool_completed",
+         "tool_name": "shell", "outcome": "permission_rejected", "tool_call_id": "t3"},
+    ])
+    _write(os.path.join(sess, "updates.jsonl"), [
+        {"sessionUpdate": "turn_completed",
+         "usage": {"inputTokens": 10, "cachedReadTokens": 90, "outputTokens": 7}},
+    ])
+    assert detect_harness(sess) == "grok"
+    s = analyze(sess)
+    assert s["harness"] == "grok"
+    assert s["green"] == 1 and s["red"] == 1 and s["unknown_results"] == 1
+    assert s["yolo_mode"] is True and s["compactions"] == 1
+    assert s["tokens_in"] == 100 and s["tokens_out"] == 7
+    assert s["models"] == {"grok-4.6": 1}
+
+
+def test_detect_and_grade_gemini_fixture():
+    from harness_adapters import detect_harness
+    import tempfile, os
+    d = tempfile.mkdtemp()
+    p = os.path.join(d, "session-2026-08-20T10-00-abcd1234.jsonl")
+    call = {"id": "g1", "name": "run_shell_command",
+            "args": {"command": "ls"}, "status": "success",
+            "resultDisplay": "ok"}
+    _write(p, [
+        {"sessionId": "abcd1234", "projectHash": "ff", "kind": "main",
+         "startTime": "2026-08-20T10:00:00.000Z", "lastUpdated": "x"},
+        {"id": "m1", "timestamp": "2026-08-20T10:00:01.000Z", "type": "user",
+         "content": [{"text": "go"}]},
+        {"id": "m2", "timestamp": "2026-08-20T10:00:02.000Z", "type": "gemini",
+         "content": "", "model": "gemini-3.7-flash",
+         "tokens": {"input": 5, "cached": 5, "output": 3},
+         "toolCalls": [call]},
+        # duplicate update of the same message must not double-count the call
+        {"id": "m2", "timestamp": "2026-08-20T10:00:03.000Z", "type": "gemini",
+         "content": "done", "model": "gemini-3.7-flash",
+         "tokens": {"input": 5, "cached": 5, "output": 3},
+         "toolCalls": [call]},
+        {"$set": {"lastUpdated": "x"}},
+    ])
+    assert detect_harness(p) == "gemini"
+    s = analyze(p)
+    assert s["harness"] == "gemini"
+    assert s["green"] == 1 and s["red"] == 0     # deduped despite the repeat
+    assert s["models"] == {"gemini-3.7-flash": 2}
+    assert s["tokens_in"] == 20 and s["tokens_out"] == 6
+
+
+def test_unknown_results_touch_nothing():
+    # a null-success result between greens must not break the streak
+    from grade_session import analyze as _a
+    recs = [prompt(),
+            asst([tool_use("Bash", "a", command="x")]), result("a", "ok"),
+            asst([tool_use("Bash", "b", command="y")]), result("b", "ok")]
+    s = _min_s(green=2, longest_streak=2)
+    base = score(s, [])
+    s2 = _min_s(green=2, longest_streak=2, unknown_results=5)
+    assert score(s2, []) == base   # unknowns carry no points either way
 
 
 def test_cli_smoke():

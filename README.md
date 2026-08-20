@@ -1,9 +1,14 @@
 # LLM Grader
 
-Grade one of your own Claude Code sessions into a comedy results card, rendered in
+Grade one of your own AI-coding sessions into a comedy results card, rendered in
 the red/green diff-counter aesthetic. Local-only, zero-upload: it reads the session
-transcript already on your disk, counts what happened, attaches named achievements,
+record already on your disk, counts what happened, attaches named achievements,
 and prints a card. The score is entertainment and says so.
+
+Supported harnesses (auto-detected from the file's own shape): **Claude Code**,
+**Codex CLI**, **Grok CLI**, **Gemini CLI**. Pass a Codex rollout file, a Grok
+session directory, or a Gemini chat file exactly like a Claude transcript. Cards
+stamp their adapter — cross-harness scores are different games and say so.
 
 ```bash
 python3 grade_session.py            # grade your most recent session
