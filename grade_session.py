@@ -22,7 +22,10 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from harness_adapters import detect_harness, iter_events, session_identity
+from harness_adapters import (
+    detect_harness, iter_events, session_identity,
+    list_sessions, session_mtime, session_bytes,
+)
 
 SCORING_VERSION = "scoring-v0.5 (entertainment only)"
 CHAIN_PRODUCT_CAP = 6.0     # stacked chain multipliers cap ("within reason")
@@ -34,6 +37,9 @@ WINDOW_CHAIN_EXP = 1.5
 WINDOW_CHAIN_UNIT = 150
 WINDOW_CHAIN_CAP = 12
 PROJECTS_DIR = Path.home() / ".claude" / "projects"
+MAX_PICK_BYTES = 50 * 1024 * 1024   # skip monster rollouts when auto-picking
+PICK_LOOKBACK_DAYS = 7              # if today has only the live session
+PICK_ANALYZE_CAP = 20               # pre-filter by size; do not parse every rollout
 
 # Known-format tally parsing (non-semantic; fails open on no-match).
 TALLY_RE = re.compile(r"(\d+)\s+passed(?:,?\s+(\d+)\s+fail(?:ed|ures?))?", re.IGNORECASE)
@@ -590,32 +596,117 @@ def share_caption(s, buffs, final):
             f"{top}\n(means nothing. sharing it anyway.) #TerminallyCooked")
 
 
-def find_session(arg, root=None):
+def default_home():
+    return Path(os.environ.get("TERMINALLY_COOKED_HOME") or Path.home())
+
+
+def session_label(path):
+    p = Path(path)
+    return p.name if p.is_dir() else p.stem[-36:] if len(p.stem) >= 36 else p.stem
+
+
+def juice_score(s):
+    """How much of a session there is to roast. Not the entertainment score.
+
+    A 1-minute probe with a handful of calls loses to a real work session with
+    the same call count. The live session is excluded before this runs.
+    """
+    tools = s["green"] + s["red"]
+    if tools == 0:
+        return 0
+    mins = duration_minutes(s) or 1
+    length = 1.0 if mins >= 15 else 0.45 if mins >= 5 else 0.15
+    return tools * length
+
+
+def pick_juicy_session(home=None, now=None, claude_projects=None):
+    """Return (path, skip-note). Never returns the live (newest-mtime) session."""
+    home = Path(home or default_home())
+    now = now or datetime.now().astimezone()
+    today = now.astimezone().date()
+    cands = [p for p in list_sessions(home, claude_projects) if session_bytes(p) <= MAX_PICK_BYTES]
+    if not cands:
+        return None, "no session transcripts found"
+    live = max(cands, key=session_mtime)
+    rest = [p for p in cands if p.resolve() != live.resolve()]
+    if not rest:
+        return None, f"skipped live session {session_label(live)}; nothing else to grade"
+    cutoff = now.timestamp() - PICK_LOOKBACK_DAYS * 86400
+    recent = [p for p in rest if session_mtime(p) >= cutoff] or rest
+    midnight = now.astimezone().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+    today_files = [p for p in rest if session_mtime(p) >= midnight]
+    lookback_big = sorted(recent, key=session_bytes, reverse=True)[:PICK_ANALYZE_CAP]
+    shortlist, seen = [], set()
+    for p in today_files + lookback_big:
+        rp = p.resolve()
+        if rp in seen:
+            continue
+        seen.add(rp)
+        shortlist.append(p)
+    scored = []
+    for p in shortlist:
+        try:
+            stats = analyze(p)
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        scored.append((p, stats, juice_score(stats)))
+    if not scored:
+        return None, f"skipped live session {session_label(live)}; no readable sessions"
+    def pool(days):
+        out = []
+        for p, stats, j in scored:
+            if j <= 0:
+                continue
+            ts = stats.get("first_ts")
+            try:
+                when = datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone()
+                age = (today - when.date()).days
+            except (ValueError, TypeError, AttributeError):
+                age = (today - datetime.fromtimestamp(session_mtime(p)).date()).days
+            if 0 <= age <= days:
+                out.append((p, stats, j))
+        return out
+    chosen = pool(0) or pool(PICK_LOOKBACK_DAYS)
+    if not chosen:
+        return None, f"skipped live session {session_label(live)}; no other sessions today or in the last {PICK_LOOKBACK_DAYS} days"
+    path, stats, _ = max(chosen, key=lambda t: t[2])
+    tools = stats["green"] + stats["red"]
+    note = (f"skipped live session {session_label(live)}; "
+            f"picked {session_label(path)} ({tools} results)")
+    return path, note
+
+
+def find_session(arg, root=None, home=None, claude_projects=None):
     if arg and Path(arg).exists():
-        return Path(arg)
-    base = root or PROJECTS_DIR
-    candidates = sorted(base.glob("*/*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True)
-    if arg:  # partial uuid match
-        for p in candidates:
-            if p.stem.startswith(arg):
-                return p
-        sys.exit(f"no session matching '{arg}' under {base}")
-    if not candidates:
-        sys.exit(f"no session transcripts found under {base}")
-    return candidates[0]
+        return Path(arg), None
+    home = Path(home or default_home())
+    claude_projects = claude_projects or root
+    if arg:  # partial uuid match across harnesses
+        for p in list_sessions(home, claude_projects):
+            if session_label(p).startswith(arg) or p.name.startswith(arg):
+                return p, None
+        sys.exit(f"no session matching '{arg}'")
+    path, note = pick_juicy_session(home=home, claude_projects=claude_projects)
+    if path is None:
+        sys.exit(note)
+    return path, note
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Grade one of your own AI-coding sessions into a comedy results card (local-only, zero-upload).")
-    ap.add_argument("session", nargs="?", help="Path to a session .jsonl, a session-uuid prefix, or omit for the most recent session")
+    ap = argparse.ArgumentParser(description="Grade one of your own AI-coding sessions into a comedy results card (local-only, zero-upload). With no path, picks a juicy session from today and never grades the live session that invoked this process.")
+    ap.add_argument("session", nargs="?", help="Path to a session file/dir, a session-uuid prefix, or omit to auto-pick a juicy session from today (never the live invoking session)")
     ap.add_argument("--html", nargs="?", const="", metavar="OUT",
                     help="Also write a shareable standalone HTML card (default: ./terminally-cooked-card-<id>.html)")
     ap.add_argument("--share", action="store_true",
                     help="Copy a suggested post caption to the clipboard and open a blank X composer. Nothing is transmitted; you paste and post.")
     ap.add_argument("--projects-dir", metavar="DIR",
-                    help="Transcript root (default: $CLAUDE_CONFIG_DIR/projects or ~/.claude/projects)")
+                    help="Claude Code transcript root (default: $CLAUDE_CONFIG_DIR/projects or ~/.claude/projects). Auto-pick still scans Grok/Codex/Gemini under $HOME.")
     args = ap.parse_args()
-    path = find_session(args.session, projects_dir(args.projects_dir))
+    claude_root = projects_dir(args.projects_dir) if args.projects_dir else None
+    path, note = find_session(args.session, claude_root, home=default_home(),
+                              claude_projects=claude_root)
+    if note:
+        print(note, file=sys.stderr)
     s = analyze(path)
     buffs = pick_buffs(s)
     final = score(s, buffs)

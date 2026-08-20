@@ -1,8 +1,9 @@
 ---
 name: terminally-cooked
 description: >
-  Grade one of your own AI-coding sessions into a local comedy results card
-  (Terminally Cooked). Use when the user says "grade this session", "grade my
+  Grade a juicy AI-coding session from today into a local comedy results card
+  (Terminally Cooked). Never grade the session that invoked this skill — that
+  card has no insight. Use when the user says "grade this session", "grade my
   session", "session card", "terminally cooked", "llm grader", "roast this
   session", or wants a shareable diff-counter scorecard from a Claude Code,
   Codex, Grok, or Gemini CLI transcript.
@@ -12,17 +13,24 @@ description: >
 
 Run the CLI in this repo. Do not reimplement scoring.
 
+**Never grade the session you are currently in.** The invoking chat is a
+probe, not a work session. Omit the path and let the CLI skip the live
+session, then pick the meatiest other session from today (tool-result volume
+and duration). If today has nothing else, it looks back one week. Do not pass
+the current transcript path, uuid, or rollout file.
+
 ```bash
-python3 grade_session.py            # most recent Claude Code session
-python3 grade_session.py <uuid>     # session-uuid prefix
+python3 grade_session.py            # juicy session from today, never the live one
+python3 grade_session.py <uuid>     # a specific other session (not the live one)
 python3 grade_session.py path/to/session.jsonl
 python3 grade_session.py --html     # also write a standalone HTML card
 python3 grade_session.py --share    # copy a caption locally; user pastes to X
 python3 test_grade_session.py
 ```
 
-Pass a Codex rollout file, a Grok session directory, or a Gemini chat file the
-same way. The card stamps the adapter. Cross-harness scores are different games.
+A Codex rollout file, a Grok session directory, or a Gemini chat file works
+the same way when the user names a specific *other* session. The card stamps
+the adapter. Cross-harness scores are different games.
 
 Badge art lives in `assets/badges/` next to the script and is inlined as data
 URIs. Keep that directory with the script. Never fetch badges from the network.
@@ -48,6 +56,7 @@ parsing only**. The scoring contract is not yours to improve in passing.
 - Removing or softening the entertainment label
 - Imputing subagent / child-session work into the parent score
 - Ranking, leaderboards, or any claim that scores are comparable across people
+- Grading the invoking session "just this once"
 
 If a format change makes a modifier unobservable, leave it unawarded. Do not
 invent a proxy metric.
@@ -59,6 +68,7 @@ source.
 
 ## How to invoke
 
-The user points at a session (or omits the arg for "latest"). You run the
-commands above from this repo root, show the ANSI card, and if they want to
-post it, use `--html` and/or `--share`. You do not post for them.
+Run `python3 grade_session.py` with no session argument from this repo root.
+Show the ANSI card. Do not explain the skip/pick note unless the user asks how
+the session was chosen. If they want to post it, `--html` and/or `--share`.
+You do not post for them.

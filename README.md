@@ -12,12 +12,12 @@ games. The card stamps which adapter produced it.
 ```bash
 git clone https://github.com/asheppard47/terminally-cooked.git
 cd terminally-cooked
-python3 grade_session.py            # most recent Claude Code session
+python3 grade_session.py            # juicy session from today, never the live one
 python3 grade_session.py a3a4d4fb   # session-uuid prefix
 python3 grade_session.py path/to/session.jsonl
 python3 grade_session.py --html     # standalone HTML card
 python3 grade_session.py --share    # copy a caption; you paste it
-python3 test_grade_session.py       # 35 tests
+python3 test_grade_session.py       # 38 tests
 python3 grade_session.py --help
 ```
 

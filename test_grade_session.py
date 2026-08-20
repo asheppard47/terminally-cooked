@@ -5,6 +5,7 @@ import json
 import subprocess
 import sys
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -561,6 +562,79 @@ def test_cli_smoke():
                          capture_output=True, text=True)
     assert out.returncode == 0, out.stderr
     assert "TERMINALLY COOKED" in out.stdout
+
+
+def _grok_sess(home, sid, n_green, start, minutes, mtime):
+    """Tiny Grok session dir. start is timezone-aware; mtime is epoch seconds."""
+    import os
+    d = Path(home) / ".grok" / "sessions" / "proj" / sid
+    d.mkdir(parents=True)
+    (d / "summary.json").write_text("{}")
+    recs = []
+    for i in range(n_green):
+        ts = (start.timestamp() + i * 30)
+        iso = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        recs.append({"ts": iso, "type": "turn_started", "model_id": "grok-4.6",
+                     "yolo_mode": False})
+        recs.append({"ts": iso, "type": "tool_completed", "tool_name": "read_file",
+                     "outcome": "success", "tool_call_id": f"t{i}"})
+    # stretch last timestamp to requested duration
+    end = start.timestamp() + minutes * 60
+    recs[-1]["ts"] = datetime.fromtimestamp(end, tz=timezone.utc).strftime(
+        "%Y-%m-%dT%H:%M:%S.000Z")
+    _write(d / "events.jsonl", recs)
+    os.utime(d / "events.jsonl", (mtime, mtime))
+    return d
+
+
+def test_pick_skips_live_even_when_live_is_juicier():
+    from datetime import timedelta
+    from grade_session import pick_juicy_session
+    home = Path(tempfile.mkdtemp())
+    now = datetime.now(timezone.utc)
+    today = now.replace(hour=12, minute=0, second=0, microsecond=0)
+    live = _grok_sess(home, "live0000-0000-7000-8000-000000000001",
+                      n_green=80, start=today, minutes=40, mtime=now.timestamp())
+    alt = _grok_sess(home, "alt00000-0000-7000-8000-000000000002",
+                     n_green=20, start=today - timedelta(minutes=90),
+                     minutes=30, mtime=now.timestamp() - 3600)
+    picked, note = pick_juicy_session(home=home, now=now)
+    assert picked.resolve() == alt.resolve(), (picked, note)
+    assert "live" in note and "alt00000" in note
+
+
+def test_pick_falls_back_when_today_is_only_live():
+    from datetime import timedelta
+    from grade_session import pick_juicy_session
+    home = Path(tempfile.mkdtemp())
+    now = datetime.now(timezone.utc)
+    today = now.replace(hour=12, minute=0, second=0, microsecond=0)
+    last_week = today - timedelta(days=6)
+    live = _grok_sess(home, "live0000-0000-7000-8000-000000000001",
+                      n_green=3, start=today, minutes=5, mtime=now.timestamp())
+    old = _grok_sess(home, "old00000-0000-7000-8000-000000000003",
+                     n_green=40, start=last_week, minutes=50,
+                     mtime=(last_week).timestamp())
+    picked, note = pick_juicy_session(home=home, now=now)
+    assert picked.resolve() == old.resolve(), (picked, note)
+
+
+def test_pick_prefers_longer_session_over_one_minute_blitz():
+    from datetime import timedelta
+    from grade_session import pick_juicy_session
+    home = Path(tempfile.mkdtemp())
+    now = datetime.now(timezone.utc)
+    today = now.replace(hour=12, minute=0, second=0, microsecond=0)
+    live = _grok_sess(home, "live0000-0000-7000-8000-000000000001",
+                      n_green=2, start=today, minutes=2, mtime=now.timestamp())
+    blitz = _grok_sess(home, "blitz000-0000-7000-8000-000000000004",
+                       n_green=12, start=today - timedelta(minutes=10),
+                       minutes=1, mtime=now.timestamp() - 600)
+    haul = _grok_sess(home, "haul0000-0000-7000-8000-000000000005",
+                      n_green=12, start=today - timedelta(hours=3),
+                      minutes=40, mtime=now.timestamp() - 7200)
+    picked, note = pick_juicy_session(home=home, now=now)
+    assert picked.resolve() == haul.resolve(), (picked, note)
 
 
 if __name__ == "__main__":
