@@ -33,6 +33,12 @@ triggers:
 | D10 | 2026-08-19 | **Art direction: painterly, luminous, textless.** Terminal-green/cyber palettes, neon "electric" grading, and photographic HDR vocabulary are all rejected. | Owner art direction |
 | D11 | 2026-08-19 | **Blind A/B, one vote per person, outside parties.** Both models render identical prompts; votes are collected as native Telegram polls in a real developer group rather than solo judgment. | Owner; both review waves flagged solo comedy judgment as a defect |
 
+| D12 | 2026-08-20 | **Scoring standard: one complete native session is the canonical unit.** No rolling lookback (invites boundary slicing), no best-session ladder (rewards grinding). Comparability rides the identity tuple — scoring version, division (blitz/sprint/long haul), delegation class, duration, recompute stamp — never the bare number. | Publish-review wave (Sol #10-11; Flash's normalized-rating proposal partially adopted as divisions-as-labels, rejected as a second score) |
+| D13 | 2026-08-20 | **Subagent work is never imputed.** Sessions with subagent calls print a delegation class ("internals not graded"). Weighting Agent calls by duration or tokens fabricates precision about invisible work. | Publish-review wave (Sol #3 over Flash #2) |
+| D14 | 2026-08-20 | **Share-to-X is caption-to-clipboard plus a blank composer.** No prefilled intent URLs and no upload APIs — both transmit the score before the user posts. The `--share` flag copies a caption from allowlisted fields and opens the composer; the user pastes. | Publish-review wave (Sol #16 over Flash #8) |
+| D15 | 2026-08-20 | **Anti-cheat posture for publication: "self-attested, reproducible locally, not authenticated."** The recompute stamp stays; HMAC slugs with a public salt were rejected as forgeable theater. Honest reproduction is made cheap (published source, tagged releases) rather than pretending provenance. | Publish-review wave (Sol #12-13; Flash #7 rejected) |
+| D16 | 2026-08-20 | **Public claim stays "Claude Code main-session transcripts."** The product does not claim to cover all LLM-assisted coding; other tools are future ingestion adapters, each needing its own session-unit mapping. | Publish-review wave (both reviewers) |
+
 ## Open questions
 
 | Question | Status | Blocking |

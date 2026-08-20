@@ -10,7 +10,8 @@ python3 grade_session.py            # grade your most recent session
 python3 grade_session.py a3a4d4fb   # grade by session-uuid prefix
 python3 grade_session.py path/to/session.jsonl
 python3 grade_session.py --html     # also write a shareable HTML card
-python3 test_grade_session.py       # 24 tests
+python3 grade_session.py --share    # copy a caption to the clipboard + open X composer
+python3 test_grade_session.py       # 28 tests
 ```
 
 ## Documentation
