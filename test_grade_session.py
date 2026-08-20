@@ -638,6 +638,13 @@ def test_pick_prefers_longer_session_over_one_minute_blitz():
     assert picked.resolve() == haul.resolve(), (picked, note)
 
 
+def test_claude_slug_encodes_underscore():
+    from grade_session import claude_project_slug
+    cwd = "/private/var/folders/9_/tmp/air-claude-code-p04jm_wu"
+    assert claude_project_slug(cwd) == (
+        "-private-var-folders-9--tmp-air-claude-code-p04jm-wu")
+
+
 def test_juice_counts_unknowns_and_rejects_probes():
     from grade_session import juice_score
     work = _min_s(green=0, red=0, unknown_results=40,
@@ -696,6 +703,42 @@ def test_pick_claude_cwd_skips_newest_in_project():
         home=home, live_ids=[], env={}, cwd=cwd)
     assert picked.resolve() == other.resolve(), (picked, note)
     assert "aaaaaaaa" in note
+
+
+def test_pick_prefers_yesterdays_work_over_todays_probe():
+    from datetime import timedelta
+    from grade_session import pick_juicy_session
+    home = Path(tempfile.mkdtemp())
+    now = datetime.now(timezone.utc)
+    today = now.replace(hour=12, minute=0, second=0, microsecond=0)
+    live = _grok_sess(home, "live0000-0000-7000-8000-000000000001",
+                      n_green=2, start=today, minutes=2, mtime=now.timestamp())
+    probe = _grok_sess(home, "probe000-0000-7000-8000-00000000000e",
+                       n_green=80, start=today - timedelta(hours=1),
+                       minutes=1, mtime=now.timestamp() - 3600)
+    haul = _grok_sess(home, "haul0000-0000-7000-8000-00000000000f",
+                      n_green=14, start=today - timedelta(days=1),
+                      minutes=30, mtime=now.timestamp() - 86400)
+    picked, note = pick_juicy_session(home=home, now=now, live_ids=[])
+    assert picked.resolve() == haul.resolve(), (picked, note)
+
+
+def test_grok_hash_is_boundary_safe():
+    from grade_session import analyze, pick_buffs, score
+    home = Path(tempfile.mkdtemp())
+    now = datetime.now(timezone.utc)
+    a = _grok_sess(home, "bound000-0000-7000-8000-000000000010",
+                   n_green=1, start=now, minutes=5, mtime=now.timestamp())
+    bdir = Path(home) / ".grok" / "sessions" / "proj" / "bound001-0000-7000-8000-000000000011"
+    bdir.mkdir(parents=True)
+    (bdir / "summary.json").write_text("{}")
+    # same bytes split across the two files must not hash equal
+    ev = (a / "events.jsonl").read_text()
+    (a / "updates.jsonl").write_text("")
+    (bdir / "events.jsonl").write_text("")
+    (bdir / "updates.jsonl").write_text(ev)
+    sa, sb = analyze(a), analyze(bdir)
+    assert sa["transcript_sha"] != sb["transcript_sha"]
 
 
 def test_pick_skips_invoker_even_when_not_newest():

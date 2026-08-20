@@ -78,6 +78,11 @@ def analyze(path, harness=None):
     session_id, hash_paths = session_identity(path, harness)
     sha = hashlib.sha256()
     for hash_path in hash_paths:
+        name = Path(hash_path).name.encode()
+        sha.update(len(name).to_bytes(4, "big"))
+        sha.update(name)
+        size = Path(hash_path).stat().st_size
+        sha.update(size.to_bytes(8, "big"))
         with open(hash_path, "rb") as fh:      # chunked: transcripts can be huge
             for chunk in iter(lambda: fh.read(1 << 20), b""):
                 sha.update(chunk)
@@ -633,7 +638,8 @@ def is_invoking_session(path, live_ids):
 
 
 def claude_project_slug(cwd):
-    return str(Path(cwd)).replace("/", "-").replace(" ", "-")
+    """Claude Code project folder: every non-alphanumeric char becomes '-'."""
+    return "".join(ch if ch.isalnum() else "-" for ch in str(Path(cwd)))
 
 
 def live_paths(cands, live_ids=None, env=None, cwd=None):
@@ -646,15 +652,14 @@ def live_paths(cands, live_ids=None, env=None, cwd=None):
     if live_ids is None:
         live_ids = invoking_ids(env)
     matched = [p for p in cands if is_invoking_session(p, live_ids)]
+    slug = claude_project_slug(cwd or Path.cwd())
+    same = [p for p in cands if p.suffix == ".jsonl" and p.parent.name == slug]
+    if same:
+        newest_here = max(same, key=session_mtime)
+        if newest_here.resolve() not in {p.resolve() for p in matched}:
+            matched.append(newest_here)
     if matched:
         return matched
-    grokish = env.get("GROK_AGENT") or env.get("GROK_SESSION_ID")
-    codexish = env.get("CODEX_THREAD_ID") or env.get("CODEX_SESSION_ID")
-    if not grokish and not codexish:
-        slug = claude_project_slug(cwd or Path.cwd())
-        same = [p for p in cands if p.suffix == ".jsonl" and p.parent.name == slug]
-        if same:
-            return [max(same, key=session_mtime)]
     if cands:
         return [max(cands, key=session_mtime)]
     return []
@@ -722,11 +727,14 @@ def pick_juicy_session(home=None, now=None, claude_projects=None, live_ids=None,
         scored.append((p, stats, juice_score(stats)))
     if not scored:
         return None, f"skipped live session {skipped}; no readable sessions"
-    def pool(days):
+    def is_probe(stats):
+        mins = duration_minutes(stats) or 1
+        return mins < 5
+    real = [(p, st, j) for p, st, j in scored if j > 0 and not is_probe(st)]
+    probes = [(p, st, j) for p, st, j in scored if j > 0 and is_probe(st)]
+    def take(rows, days):
         out = []
-        for p, stats, j in scored:
-            if j <= 0:
-                continue
+        for p, stats, j in rows:
             ts = stats.get("first_ts")
             try:
                 when = datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone()
@@ -736,7 +744,8 @@ def pick_juicy_session(home=None, now=None, claude_projects=None, live_ids=None,
             if 0 <= age <= days:
                 out.append((p, stats, j))
         return out
-    chosen = pool(0) or pool(PICK_LOOKBACK_DAYS)
+    chosen = (take(real, 0) or take(real, PICK_LOOKBACK_DAYS)
+              or take(probes, 0) or take(probes, PICK_LOOKBACK_DAYS))
     if not chosen:
         return None, f"skipped live session {skipped}; no other sessions today or in the last {PICK_LOOKBACK_DAYS} days"
     path, stats, _ = max(chosen, key=lambda t: t[2])

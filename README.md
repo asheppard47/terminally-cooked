@@ -17,7 +17,7 @@ python3 grade_session.py a3a4d4fb   # session-uuid prefix
 python3 grade_session.py path/to/session.jsonl
 python3 grade_session.py --html     # standalone HTML card
 python3 grade_session.py --share    # copy a caption; you paste it
-python3 test_grade_session.py       # 45 tests
+python3 test_grade_session.py       # 48 tests
 python3 grade_session.py --help
 ```
 
