@@ -4,7 +4,7 @@ schema_version: 2
 title: "Card Specification"
 doc_type: detail
 parent: INDEX.md
-last_updated: 2026-08-19
+last_updated: 2026-08-21
 last_audit: 2026-08-19
 audit_status: current
 domain: docs
@@ -27,8 +27,8 @@ triggers:
 | Duration | first-to-last timestamp | `5h 55m` |
 | Models | model names, sanitized | `claude-sonnet-5` |
 | Effort levels | effort values, sanitized | `high` |
-| Event counts | green, red, longest streak | `+36 / −2 / streak 22` |
-| Test tally pair | first and last test-shaped tallies | `86 passed → 129 passed` |
+| Event counts | successful tool results, tool errors, longest streak | `+36 tool results / 2 errors / streak 22` |
+| Test tally pair | first and last test-shaped tallies | `86 tests passed → 129 tests passed` |
 | Tool histogram | tool names and call counts, top 6 | `Bash:17 Read:4` |
 | Token totals | summed usage | `483.3M in · 1.18M out` |
 | Modifiers | name, class, value, reason line | `FLOW STATE ×1.5 — 64 green results without a miss` |
@@ -43,19 +43,22 @@ Model and effort names originate in the transcript and are therefore attacker-in
 
 ## Layout contract
 
-Both renderers present the same reading order, so a screenshot of either is recognisably the same object:
+The ANSI card is a live CLI readout and keeps log order (header → fever → counts → tally → modifiers → score at the bottom). The HTML/PNG share card is score-first so a Telegram or X crop hits the joke, not the meta line:
 
-1. **Header** — session id, date, duration, models, effort
-2. **Fever bar** — green-to-red ratio as a single filled bar
-3. **Counts line** — green, errors, longest streak
-4. **Diff tally** — the test pair rendered as a red removed line above a green added line, the aesthetic the whole product started from
-5. **Tool histogram and token totals**
-6. **Modifier list** — glyph, name, value tag, reason
-7. **Footer** — final score with the skill/comedy split, scoring version, recompute stamp
+1. **Wordmark** — TERMINALLY COOKED
+2. **Hero score** — display-size gold `+N`, then skill/comedy split and the entertainment line
+3. **Stamp** — session id, date, duration, division; models and effort on the next line
+4. **Counts then fever** — tool results, errors, streak, then the green-to-red bar (ratio of those tool results, not tests)
+5. **Diff tally** — Claude Code +/- hunk stacked flush under the fever bar at the same width, red gutter touching the bar; first vs last test-run counts (`tests passed` / `failed`), `-` / `+` prefixes, no `#`
+6. **Token totals**
+7. **Modifier list** — glyph, name, value tag, reason (names wrap; they do not ellipsize)
+8. **Footer** — scoring version and recompute stamp only
+
+Same field allowlist, same GitHub-dark colors. A screenshot of either is still recognisably the same object; the share crop just leads with the number.
 
 ## Visual language
 
-The card is a diff, not a dashboard. Colors follow GitHub-dark conventions (`#0d1117` ground, `#3fb950` green, `#f85149` red, `#d29922` gold). Modifier class is encoded visually and identically in both renderers: chains take gold, debuffs red, flavor inert grey. Glyphs are monochrome terminal-native codepoints, never emoji — a deliberate rejection of the gamification patterns this audience mocks.
+The card is a diff, not a dashboard. The ANSI terminal card stays GitHub-dark. The HTML/PNG share card is a yellow hazard sign for X: ground `#ffcc00`, type `#111` / `#333`, 3px `#111` edge, add `#0a7a2f`, remove `#b91c1c`. The gothic wordmark (`assets/logo.png`) bleeds to the card edges at the top. Score is 52px; nothing in the body type is smaller than 13px. Pad matches the yellow ground — that is the card, not a cream frame around a dark widget. Modifier class is encoded visually in both renderers: chains take gold, debuffs red, flavor inert. Glyphs are monochrome terminal-native codepoints, never emoji — a deliberate rejection of the gamification patterns this audience mocks.
 
 ## Badge art integration
 
@@ -63,4 +66,4 @@ Painted badge art is produced per modifier at three levels of detail (1024 px, 7
 
 ## Output rules
 
-The HTML card is a self-contained fragment with an explicit `<meta charset="utf-8">` — without it the glyphs render as mojibake, which shipped once and was caught by screenshot review. The card is written to a local file; nothing transmits it.
+The HTML card is a self-contained fragment with an explicit `<meta charset="utf-8">` — without it the glyphs render as mojibake, which shipped once and was caught by screenshot review. `--png` rasterizes that card with local Chrome, flood-fills edge-connected magenta (including Chrome's anti-aliased pink) so badge purples stay, and writes a cropped PNG with a short pad of the same card ground (no light frame). Rounded-corner leftovers inside the pad are filled with the card background. The files stay local; nothing transmits them. The skill opens the PNG when grading finishes.

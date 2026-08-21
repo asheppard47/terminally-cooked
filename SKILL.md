@@ -21,10 +21,10 @@ looks back one week. Do not pass the current transcript path, uuid, or
 rollout file.
 
 ```bash
-python3 grade_session.py            # juicy session from today, never the live one
+python3 grade_session.py --png      # juicy session from today; write cropped PNG and open it
 python3 grade_session.py <uuid>     # a specific other session (not the live one)
 python3 grade_session.py path/to/session.jsonl
-python3 grade_session.py --html     # also write a standalone HTML card
+python3 grade_session.py --html     # HTML only
 python3 grade_session.py --share    # copy a caption locally; user pastes to X
 python3 test_grade_session.py
 ```
@@ -33,8 +33,9 @@ A Codex rollout file, a Grok session directory, or a Gemini chat file works
 the same way when the user names a specific *other* session. The card stamps
 the adapter. Cross-harness scores are different games.
 
-Badge art lives in `assets/badges/` next to the script and is inlined as data
-URIs. Keep that directory with the script. Never fetch badges from the network.
+Badge art lives in `assets/badges/` next to the script, and the wordmark is
+`assets/logo.png`. Both are inlined as data URIs. Keep them with the script.
+Never fetch art from the network.
 
 ## Repair without breaking intent
 
@@ -69,7 +70,8 @@ source.
 
 ## How to invoke
 
-Run `python3 grade_session.py` with no session argument from this repo root.
-Show the ANSI card. Do not explain the skip/pick note unless the user asks how
-the session was chosen. If they want to post it, `--html` and/or `--share`.
-You do not post for them.
+Run `python3 grade_session.py --png` with no session argument from this repo
+root. That writes a cropped PNG of the card (local Chrome, no upload) and
+opens it. Do not add a light or paper frame around the image. Show the ANSI
+card too. Do not explain the skip/pick note unless the user asks how the
+session was chosen. Do not post the image; the user does.
