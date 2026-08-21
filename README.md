@@ -13,11 +13,12 @@ games. The card stamps which adapter produced it.
 git clone https://github.com/asheppard47/terminally-cooked.git
 cd terminally-cooked
 python3 grade_session.py            # juicy session from today, never the live one
+python3 grade_session.py --png      # also write a tightly cropped PNG and open it
 python3 grade_session.py a3a4d4fb   # session-uuid prefix
 python3 grade_session.py path/to/session.jsonl
 python3 grade_session.py --html     # standalone HTML card
 python3 grade_session.py --share    # copy a caption; you paste it
-python3 test_grade_session.py       # 48 tests
+python3 test_grade_session.py       # 57 tests
 python3 grade_session.py --help
 ```
 
@@ -55,7 +56,7 @@ and a test enforces it. Sharing a card is something you do. Full contract:
 
 ## Status
 
-Scoring v0.5, 24 modifiers, 35 tests. Known coupling: each CLI's session
+Scoring v0.5, 24 modifiers, 57 tests. Known coupling: each CLI's session
 format can change. Adapters fail open; breakage is a degraded card, not a
 crash. See
 [docs/engineering/transcript-observables.md](./docs/engineering/transcript-observables.md).

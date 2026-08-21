@@ -2,6 +2,7 @@
 """Regression tests for grade_session.py against a synthetic fixture transcript."""
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -137,6 +138,162 @@ def test_token_bonfire():
     s = analyze(write_fixture(recs))
     assert s["tokens_in"] == 120_000_010
     assert "Token Bonfire" in buff_names(s)
+
+
+def test_crop_png_chroma_tight():
+    from grade_session import write_png_rgb, read_png_rgb, crop_png_chroma
+    d = Path(tempfile.mkdtemp())
+    src, dest = d / "in.png", d / "out.png"
+    rows = [[(255, 0, 255)] * 20 for _ in range(20)]
+    for y in range(7, 13):
+        for x in range(7, 13):
+            rows[y][x] = (13, 17, 23)
+    write_png_rgb(src, rows)
+    crop_png_chroma(src, dest, pad=0)
+    out = read_png_rgb(dest)
+    assert len(out) == 6 and len(out[0]) == 6
+    assert all(px == (13, 17, 23) for row in out for px in row)
+
+
+def test_png_fill_matches_card_ground():
+    """Pad is the yellow card, not a separate cream frame around a dark card."""
+    from grade_session import PNG_FILL
+    assert PNG_FILL == (255, 204, 0)
+
+
+def test_crop_png_chroma_keeps_padding():
+    """Keep pad pixels of card fill around the rounded card so the border is not the PNG edge."""
+    from grade_session import write_png_rgb, read_png_rgb, crop_png_chroma, PNG_FILL
+    d = Path(tempfile.mkdtemp())
+    src, dest = d / "in.png", d / "out.png"
+    rows = [[(255, 0, 255)] * 80 for _ in range(80)]
+    for y in range(30, 40):
+        for x in range(30, 40):
+            rows[y][x] = (48, 54, 61)
+    write_png_rgb(src, rows)
+    crop_png_chroma(src, dest, pad=8)
+    out = read_png_rgb(dest)
+    assert len(out) == 26 and len(out[0]) == 26
+    assert out[0][0] == PNG_FILL and out[-1][-1] == PNG_FILL
+    assert out[8][8] == (48, 54, 61)
+    assert all(px != (255, 0, 255) for row in out for px in row)
+
+
+def test_crop_png_chroma_fills_antialiased_fringe():
+    """Chrome anti-aliases magenta into the rounded-corner AABB; those pixels
+    must become the card fill, not a pink halo on the share PNG."""
+    from grade_session import write_png_rgb, read_png_rgb, crop_png_chroma, PNG_FILL
+    d = Path(tempfile.mkdtemp())
+    src, dest = d / "in.png", d / "out.png"
+    rows = [[(255, 0, 255)] * 24 for _ in range(24)]
+    for y in range(8, 16):
+        for x in range(8, 16):
+            rows[y][x] = (13, 17, 23)
+    # near-magenta fringe on the south-west / south-east corners, including
+    # the darker anti-alias Chrome blends toward the card fill
+    rows[15][8] = (246, 1, 247)
+    rows[15][15] = (250, 1, 250)
+    rows[14][7] = (186, 17, 190)
+    rows[14][16] = (189, 16, 193)
+    rows[13][6] = (131, 29, 138)
+    rows[13][17] = (92, 39, 102)
+    write_png_rgb(src, rows)
+    crop_png_chroma(src, dest, pad=0)
+    out = read_png_rgb(dest)
+    assert len(out) == 8 and len(out[0]) == 8
+    assert out[7][0] == PNG_FILL and out[7][7] == PNG_FILL
+    assert all(px != (255, 0, 255) for row in out for px in row)
+    assert all(not (px[0] > px[1] + 40 and px[2] > px[1] + 40 and abs(px[0] - px[2]) <= 50)
+               for row in out for px in row)
+
+
+def test_crop_png_chroma_keeps_interior_magenta():
+    """Badge art may contain purple; only edge-connected chroma is keyed."""
+    from grade_session import write_png_rgb, read_png_rgb, crop_png_chroma
+    d = Path(tempfile.mkdtemp())
+    src, dest = d / "in.png", d / "out.png"
+    rows = [[(255, 0, 255)] * 20 for _ in range(20)]
+    for y in range(6, 14):
+        for x in range(6, 14):
+            rows[y][x] = (13, 17, 23)
+    rows[10][10] = (255, 0, 255)
+    write_png_rgb(src, rows)
+    crop_png_chroma(src, dest, pad=0)
+    out = read_png_rgb(dest)
+    assert out[4][4] == (255, 0, 255)
+
+
+def test_html_page_for_png_uses_chroma_key():
+    from grade_session import html_page_for_png
+    page = html_page_for_png("<div class='lg-card'>hello</div>")
+    assert "#ff00ff" in page and "lg-card" in page
+
+
+def test_png_cli_if_chrome_available():
+    from grade_session import find_chrome
+    if find_chrome() is None:
+        return
+    recs = [prompt(), asst([tool_use("Bash", "t", command="ls")]), result("t", "ok")]
+    fix = write_fixture(recs)
+    d = Path(tempfile.mkdtemp())
+    png = d / "card.png"
+    env = os.environ.copy()
+    env["TERMINALLY_COOKED_NO_OPEN"] = "1"
+    out = subprocess.run(
+        [sys.executable, str(Path(__file__).parent / "grade_session.py"),
+         fix, "--png", str(png)],
+        capture_output=True, text=True, env=env, cwd=str(d),
+    )
+    assert out.returncode == 0, out.stderr
+    assert png.exists() and png.stat().st_size > 100
+    assert png.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def test_html_tally_uses_claude_code_diff():
+    """Share tally is a Claude Code +/- hunk, not a tinted `#` count line."""
+    recs = [prompt(),
+            asst([tool_use("Bash", "t2", command="pytest")]),
+            result("t2", "12 passed, 3 failed"),
+            asst([tool_use("Bash", "t3", command="pytest")]),
+            result("t3", "15 passed, 0 failed")]
+    s = analyze(write_fixture(recs))
+    html = render_html(s, pick_buffs(s), 1)
+    assert "- # " not in html
+    assert "- 12 tests passed, 3 failed" in html
+    assert "+ 15 tests passed, 0 failed" in html
+    assert "tool results" in html
+    assert ">green<" not in html
+    assert "border-left:4px solid" in html
+    assert "#ffecea" in html and "#dcfce7" in html
+    assert 'class="meter"' in html
+    assert html.index('class="meter"') < html.index('class="fever"')
+    assert html.index('class="fever"') < html.index('class="diff"')
+    assert "6px -22px" not in html
+    assert html.index('class="meter"') < html.index("- 12 tests passed")
+
+
+def test_html_share_card_score_leads():
+    """Share card is score-first so a Telegram/X crop hits the joke, not the meta."""
+    recs = [prompt(), asst([tool_use("Bash", "t", command="ls")]), result("t", "ok")]
+    s = analyze(write_fixture(recs))
+    html = render_html(s, pick_buffs(s), 12949)
+    assert html.index('class="final"') < html.index('class="fever"')
+    assert html.index('class="final"') < html.index('class="badges"')
+    assert html.index('class="counts"') < html.index('class="fever"')
+    assert "+12,949" in html
+    assert "text-overflow:ellipsis" not in html
+    assert "font-size:52px" in html
+    assert "background:#ffcc00" in html
+    assert "font-size:10.5px" not in html
+    assert 'class="lbl"' in html
+    assert "nth-child(odd)" not in html
+    assert 'class="wordmark"' in html
+    assert "data:image/png;base64," in html
+    assert "/Users/" not in html
+    assert html.index("wordmark") < html.index('class="final"')
+    assert 'class="joke"' in html
+    assert html.index('class="joke"') < html.index('class="counts"')
+    assert "meta quiet" in html
 
 
 def test_html_card_allowlist():

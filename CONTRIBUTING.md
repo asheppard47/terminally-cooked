@@ -1,7 +1,8 @@
 # Contributing
 
-Clone this repo and keep `assets/badges/` next to `grade_session.py`. Cards
-embed those PNGs as data URIs so a grade costs nobody bandwidth.
+Clone this repo and keep `assets/badges/` and `assets/logo.png` next to
+`grade_session.py`. Cards embed those PNGs as data URIs so a grade costs nobody
+bandwidth.
 
 ```bash
 python3 test_grade_session.py

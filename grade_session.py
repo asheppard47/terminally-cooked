@@ -17,8 +17,14 @@ import html as html_mod
 import json
 import os
 import re
+import shutil
+import signal
+import struct
 import subprocess
 import sys
+import tempfile
+import time
+import zlib
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -260,6 +266,7 @@ ICONS = {
 # docs/art/voting-protocol.md). Embedded as data URIs so a shared card stays
 # self-contained; the terminal card keeps the glyphs above.
 BADGE_DIR = Path(__file__).parent / "assets" / "badges"
+LOGO_PATH = Path(__file__).parent / "assets" / "logo.png"
 SLUGS = {
     "ONE-SHOT WONDER": "one_shot_wonder", "FLOW STATE": "flow_state",
     "Clean Streak": "clean_streak", "LET IT COOK": "let_it_cook",
@@ -285,6 +292,13 @@ def badge_data_uri(name, size=72):
     if not path.exists():
         return None
     return "data:image/png;base64," + base64.b64encode(path.read_bytes()).decode()
+
+
+def logo_data_uri():
+    """Full-bleed gothic wordmark, or None when the asset is absent."""
+    if not LOGO_PATH.exists():
+        return None
+    return "data:image/png;base64," + base64.b64encode(LOGO_PATH.read_bytes()).decode()
 
 
 SAFE_META_RE = re.compile(r"[^A-Za-z0-9._+\- ]")
@@ -469,12 +483,12 @@ def render(s, buffs, final):
     out.append(C.dim("├" + line + "┤"))
     out.append("  " + fever_bar(s) + C.dim("  fever"))
     unknown = f"   ?{s['unknown_results']} unknown" if s.get("unknown_results") else ""
-    out.append(C.green(f"  +{s['green']} green results") + "   " + C.red(f"-{s['red']} errors")
+    out.append(C.green(f"  +{s['green']} tool results") + "   " + C.red(f"-{s['red']} errors")
                + "   " + C.yellow(f"streak {s['longest_streak']}") + C.dim(unknown))
     ft, lt = s["first_tally"], s["last_tally"]
     if ft and lt:
-        out.append(C.red(f"  - # {ft[0]} passed, {ft[1]} failed"))
-        out.append(C.green(f"  + # {lt[0]} passed, {lt[1]} failed"))
+        out.append(C.red(f"  - # {ft[0]} tests passed, {ft[1]} failed"))
+        out.append(C.green(f"  + # {lt[0]} tests passed, {lt[1]} failed"))
     tool_bits = "  ".join(f"{k}:{v}" for k, v in sorted(s["tools"].items(), key=lambda kv: -kv[1])[:6])
     out.append(C.dim(f"  {tool_bits}"))
     if s["tokens_in"] or s["tokens_out"]:
@@ -533,54 +547,337 @@ def render_html(s, buffs, final):
     tally = ""
     if s["first_tally"] and s["last_tally"]:
         ft, lt = s["first_tally"], s["last_tally"]
-        tally = (f'<div class="diff"><div class="rm">- # {ft[0]} passed, {ft[1]} failed</div>'
-                 f'<div class="add">+ # {lt[0]} passed, {lt[1]} failed</div></div>')
+        tally = (f'<div class="diff"><div class="rm">- {ft[0]} tests passed, {ft[1]} failed</div>'
+                 f'<div class="add">+ {lt[0]} tests passed, {lt[1]} failed</div></div>')
     tokens = ""
     if s["tokens_in"] or s["tokens_out"]:
-        tokens = f'<div class="meta">tokens: {s["tokens_in"]/1e6:,.1f}M in &middot; {s["tokens_out"]/1e6:,.2f}M out</div>'
+        tokens = (f'<div class="meta tokens">tokens: {s["tokens_in"]/1e6:,.1f}M in'
+                  f' &middot; {s["tokens_out"]/1e6:,.2f}M out</div>')
     core, flat = score_parts(s, buffs)
+    note = delegation_note(s)
+    logo = logo_data_uri()
+    header = (f'<img class="wordmark" src="{logo}" alt="TERMINALLY COOKED">'
+              if logo else "<h1>TERMINALLY COOKED</h1>")
     return f"""<!-- terminally-cooked shareable card -->
 <meta charset="utf-8">
 <div style="max-width:560px">
 <style>
-.lg-card{{font-family:'SF Mono',Menlo,monospace;background:#0d1117;color:#c9d1d9;border:1px solid #30363d;border-radius:10px;padding:20px 24px;font-size:13px;line-height:1.7}}
-.lg-card h1{{font-size:15px;margin:0;color:#e6edf3}}.lg-card .meta{{color:#8b949e;font-size:12px}}
-.lg-card .fever{{height:10px;border-radius:5px;background:#f85149;overflow:hidden;margin:12px 0}}
-.lg-card .fever i{{display:block;height:100%;width:{pct}%;background:#3fb950}}
-.lg-card .counts{{margin:4px 0}}.lg-card .g{{color:#3fb950}}.lg-card .r{{color:#f85149}}.lg-card .y{{color:#d29922}}
-.lg-card .diff{{margin:8px 0}}.lg-card .rm{{color:#f85149}}.lg-card .add{{color:#3fb950}}
-.lg-card .badges{{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px;margin:12px 0 4px}}
-.lg-card .badge{{display:flex;gap:9px;align-items:center;border:1px solid #30363d;border-radius:7px;padding:7px 9px;background:#161b22}}
-.lg-card .badge .tile{{flex:none;width:44px;height:44px;display:flex;align-items:center;justify-content:center;font-size:18px;border:1px solid #30363d;border-radius:8px;background:#0d1117;color:#8b949e}}
+.lg-card{{font-family:'SF Mono',Menlo,monospace;background:#ffcc00;color:#111;border:3px solid #111;border-radius:10px;padding:18px 22px 20px;font-size:15px;line-height:1.45;overflow:hidden}}
+.lg-card .wordmark{{display:block;width:calc(100% + 44px);margin:-18px -22px 12px;height:auto}}
+.lg-card h1{{font-size:28px;margin:0 0 6px;letter-spacing:.04em;color:#111;font-weight:800;line-height:1.05}}
+.lg-card .hero{{margin:0 0 22px}}
+.lg-card .final{{margin:0 0 4px;padding:0;border:0;font-size:52px;line-height:1;color:#111;background:transparent;font-weight:800;letter-spacing:-.04em}}
+.lg-card .tagline{{color:#111;font-size:14px;margin:0 0 4px;font-weight:700}}
+.lg-card .joke{{color:#1a1a1a;font-size:14px;margin:0;font-weight:400;font-style:italic}}
+.lg-card .evidence{{margin:0 0 22px}}
+.lg-card .meta{{color:#333;font-size:13px;line-height:1.4}}
+.lg-card .meta.quiet{{color:#666;font-size:12px;font-weight:500;margin:0}}
+.lg-card .meta.quiet + .meta.quiet{{margin-top:2px}}
+.lg-card .counts{{margin:0 0 4px;font-size:16px;font-weight:800}}
+.lg-card .g{{color:#0a7a2f}}.lg-card .r{{color:#8b1500}}.lg-card .y{{color:#111}}
+.lg-card .lbl{{color:#333;font-weight:600}}
+.lg-card .meter{{margin:0 0 6px}}
+.lg-card .fever{{height:12px;border-radius:2px;background:#b91c1c;overflow:hidden;margin:0;border:1px solid #111;box-sizing:border-box}}
+.lg-card .meter:has(.diff){{border:1px solid #111;border-radius:2px;overflow:hidden}}
+.lg-card .meter:has(.diff) .fever{{border:none;border-radius:0}}
+.lg-card .fever i{{display:block;height:100%;width:{pct}%;background:#0a7a2f}}
+.lg-card .diff{{margin:0;font-weight:700;font-size:15px;line-height:1.5}}
+.lg-card .rm,.lg-card .add{{box-sizing:border-box;width:100%;padding:5px 12px;border-left:4px solid}}
+.lg-card .rm{{background:#ffecea;color:#9f1239;border-left-color:#e11d48}}
+.lg-card .add{{background:#dcfce7;color:#14532d;border-left-color:#16a34a}}
+.lg-card .tokens{{margin:4px 0 0}}
+.lg-card .badges{{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px;margin:14px 0 10px}}
+.lg-card .badge{{display:flex;gap:10px;align-items:center;border:2px solid #111;border-radius:8px;padding:8px 10px;background:#1a1a1a}}
+.lg-card .badge .tile{{flex:none;width:52px;height:52px;display:flex;align-items:center;justify-content:center;font-size:20px;border:2px solid #111;border-radius:8px;background:#111;color:#ffcc00}}
 .lg-card .badge .tile.art{{object-fit:cover;padding:0}}
-.lg-card .badge.chain{{border-color:#9e7c27;box-shadow:0 0 10px rgba(210,153,34,.18)}}
-.lg-card .badge.chain .tile{{color:#d29922;border-color:#9e7c27}}
-.lg-card .badge.chain .btag{{color:#d29922}}
-.lg-card .badge.debuff{{border-color:#6e2c2f}}
-.lg-card .badge.debuff .tile{{color:#f85149;border-color:#6e2c2f}}
-.lg-card .badge.debuff .btag{{color:#f85149}}
-.lg-card .badge.flavor .btag{{color:#8b949e}}
-.lg-card .bmeta{{min-width:0;display:flex;flex-direction:column;gap:1px;flex:1}}
+.lg-card .badge.chain{{border-color:#111;box-shadow:3px 3px 0 #111}}
+.lg-card .badge.chain .tile{{color:#ffcc00;border-color:#111}}
+.lg-card .badge.chain .btag{{color:#ffcc00}}
+.lg-card .badge.debuff{{border-color:#b91c1c}}
+.lg-card .badge.debuff .tile{{color:#ffcc00;border-color:#b91c1c}}
+.lg-card .badge.debuff .btag{{color:#ff6b5a}}
+.lg-card .badge.flavor .btag{{color:#bbb}}
+.lg-card .bmeta{{min-width:0;display:flex;flex-direction:column;gap:2px;flex:1}}
 .lg-card .brow{{display:flex;justify-content:space-between;gap:8px;align-items:baseline}}
-.lg-card .bname{{font-weight:700;color:#e6edf3;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
-.lg-card .btag{{font-weight:700;font-size:12px}}
-.lg-card .bwhy{{color:#8b949e;font-size:10.5px;line-height:1.4}}
-.lg-card .why{{color:#8b949e;font-size:12px}}
-.lg-card .final{{margin-top:14px;border-top:1px solid #30363d;padding-top:10px;font-size:17px;color:#d29922;font-weight:700}}
-.lg-card .fine{{color:#484f58;font-size:11px}}
+.lg-card .bname{{font-weight:800;color:#ffcc00;font-size:14px;line-height:1.25}}
+.lg-card .btag{{font-weight:800;font-size:14px;flex:none;color:#fff}}
+.lg-card .bwhy{{color:#ccc;font-size:13px;line-height:1.35}}
+.lg-card .fine{{color:#333;font-size:13px}}
 </style>
 <div class="lg-card">
-<h1>TERMINALLY COOKED</h1>
-<div class="meta">session {esc(s['session_id'][:8])} &middot; {esc(date)} &middot; {dur} &middot; {division(s)} &middot; {esc(models)} &middot; effort: {esc(efforts)}</div>
-{f'<div class="meta">{esc(delegation_note(s))}</div>' if delegation_note(s) else ''}
+{header}
+<div class="hero">
+<div class="final">+{final:,}</div>
+<div class="tagline">skill {core:,} &middot; comedy {flat:,}</div>
+<div class="joke">means nothing. share it anyway.</div>
+</div>
+<div class="evidence">
+<div class="counts"><span class="g">+{s['green']}</span> <span class="lbl">tool results</span> &middot; <span class="r">{s['red']}</span> <span class="lbl">errors</span> &middot; <span class="y">streak {s['longest_streak']}</span></div>
+<div class="meter">
 <div class="fever"><i></i></div>
-<div class="counts"><span class="g">+{s['green']} green results</span> &nbsp; <span class="r">-{s['red']} errors</span> &nbsp; <span class="y">streak {s['longest_streak']}</span></div>
-{tally}{tokens}
+{tally}</div>
+{tokens}
+</div>
+<div class="meta quiet">session {esc(s['session_id'][:8])} &middot; {esc(date)} &middot; {dur} &middot; {division(s)}</div>
+<div class="meta quiet">{esc(models)} &middot; effort: {esc(efforts)}</div>
+{f'<div class="meta quiet">{esc(note)}</div>' if note else ''}
 {rows}
-<div class="final">+{final:,} <span class="fine">(skill {core:,} &middot; comedy {flat:,} &middot; means nothing. share it anyway.)</span></div>
 <div class="fine">{SCORING_VERSION} &middot; adapter {esc(s.get('harness', 'claude-code'))} &middot; {fingerprint(s)}</div>
 </div></div>
 """
+
+
+PNG_SIG = b"\x89PNG\r\n\x1a\n"
+PNG_CHROMA = (255, 0, 255)          # screenshot key; not used in the card
+PNG_FILL = (255, 204, 0)            # #ffcc00 — same as the yellow card; pad is the card, not a frame
+PNG_PAD = 24                        # keep rounded corners off the PNG edge; pad matches the card, not a mat
+
+
+def html_page_for_png(fragment):
+    """Full document for rasterizing: magenta key around the card."""
+    return (
+        "<!doctype html><html><head><meta charset='utf-8'>"
+        "<style>html,body{margin:0;padding:24px;background:#ff00ff;}</style>"
+        "</head><body>" + fragment + "</body></html>"
+    )
+
+
+def _png_chunk(tag, data):
+    crc = zlib.crc32(tag + data) & 0xFFFFFFFF
+    return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", crc)
+
+
+def write_png_rgb(path, rows):
+    """Write an 8-bit RGB PNG. rows is a list of lists of (r,g,b)."""
+    h = len(rows)
+    w = len(rows[0]) if h else 0
+    raw = b""
+    for row in rows:
+        raw += b"\x00" + bytes(c for px in row for c in px[:3])
+    ihdr = struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)
+    data = (
+        PNG_SIG
+        + _png_chunk(b"IHDR", ihdr)
+        + _png_chunk(b"IDAT", zlib.compress(raw, 9))
+        + _png_chunk(b"IEND", b"")
+    )
+    Path(path).write_bytes(data)
+
+
+def read_png_rgb(path):
+    """Read an 8-bit RGB or RGBA PNG into rows of (r,g,b)."""
+    data = Path(path).read_bytes()
+    if data[:8] != PNG_SIG:
+        raise ValueError("not a PNG")
+    pos = 8
+    w = h = bit = color = inter = None
+    idat = b""
+    while pos < len(data):
+        ln = struct.unpack(">I", data[pos:pos + 4])[0]
+        tag = data[pos + 4:pos + 8]
+        chunk = data[pos + 8:pos + 8 + ln]
+        pos += 12 + ln
+        if tag == b"IHDR":
+            w, h, bit, color, _comp, _flt, inter = struct.unpack(">IIBBBBB", chunk)
+        elif tag == b"IDAT":
+            idat += chunk
+        elif tag == b"IEND":
+            break
+    if None in (w, h, bit, color) or bit != 8 or inter != 0 or color not in (2, 6):
+        raise ValueError("unsupported PNG")
+    bpp = 3 if color == 2 else 4
+    raw = zlib.decompress(idat)
+    stride = w * bpp
+    rows, i, prev = [], 0, b"\x00" * stride
+
+    def paeth(a, b, c):
+        p = a + b - c
+        pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
+        if pa <= pb and pa <= pc:
+            return a
+        return b if pb <= pc else c
+
+    for _ in range(h):
+        ftype = raw[i]
+        scan = bytearray(raw[i + 1:i + 1 + stride])
+        i += 1 + stride
+        if ftype == 1:
+            for x in range(stride):
+                scan[x] = (scan[x] + (scan[x - bpp] if x >= bpp else 0)) & 255
+        elif ftype == 2:
+            for x in range(stride):
+                scan[x] = (scan[x] + prev[x]) & 255
+        elif ftype == 3:
+            for x in range(stride):
+                left = scan[x - bpp] if x >= bpp else 0
+                scan[x] = (scan[x] + ((left + prev[x]) // 2)) & 255
+        elif ftype == 4:
+            for x in range(stride):
+                left = scan[x - bpp] if x >= bpp else 0
+                up_l = prev[x - bpp] if x >= bpp else 0
+                scan[x] = (scan[x] + paeth(left, prev[x], up_l)) & 255
+        elif ftype != 0:
+            raise ValueError("bad PNG filter")
+        prev = bytes(scan)
+        if color == 2:
+            rows.append([tuple(scan[x:x + 3]) for x in range(0, stride, 3)])
+        else:
+            rows.append([tuple(scan[x:x + 3]) for x in range(0, stride, 4)])
+    return rows
+
+
+def _is_chroma_px(px, chroma=PNG_CHROMA):
+    """True for the screenshot key and the pink anti-alias Chrome leaves on it."""
+    r, g, b = px[0], px[1], px[2]
+    cr, cg, cb = chroma
+    if r == cr and g == cg and b == cb:
+        return True
+    if abs(r - cr) <= 48 and abs(g - cg) <= 48 and abs(b - cb) <= 48:
+        return True
+    # anti-aliased magenta against the dark card: R and B both sit above G, R≈B
+    return r > g + 40 and b > g + 40 and abs(r - b) <= 50
+
+
+def crop_png_chroma(src, dest, chroma=PNG_CHROMA, fill=PNG_FILL, pad=PNG_PAD):
+    """AABB of the card plus a short pad of card fill. Edge-connected chroma
+    (plus anti-aliased pink) becomes that fill so rounded-corner leftovers are
+    not a magenta halo. Interior purple (badge art) stays. Do not use a light
+    mat — the owner rejected a white/cream frame around the image."""
+    rows = read_png_rgb(src)
+    h, w = len(rows), len(rows[0]) if rows else 0
+    if not h or not w:
+        write_png_rgb(dest, rows)
+        return dest
+
+    bg = [[False] * w for _ in range(h)]
+    stack = []
+    for x in range(w):
+        stack.append((0, x))
+        stack.append((h - 1, x))
+    for y in range(h):
+        stack.append((y, 0))
+        stack.append((y, w - 1))
+    while stack:
+        y, x = stack.pop()
+        if y < 0 or y >= h or x < 0 or x >= w or bg[y][x]:
+            continue
+        if not _is_chroma_px(rows[y][x], chroma):
+            continue
+        bg[y][x] = True
+        stack.append((y - 1, x))
+        stack.append((y + 1, x))
+        stack.append((y, x - 1))
+        stack.append((y, x + 1))
+
+    ymin, ymax, xmin, xmax = h, -1, w, -1
+    for y, row in enumerate(rows):
+        for x in range(w):
+            if not bg[y][x]:
+                if y < ymin:
+                    ymin = y
+                if y > ymax:
+                    ymax = y
+                if x < xmin:
+                    xmin = x
+                if x > xmax:
+                    xmax = x
+    if ymax < ymin:
+        write_png_rgb(dest, rows)
+        return dest
+    pad = max(0, int(pad))
+    ymin = max(0, ymin - pad)
+    ymax = min(h - 1, ymax + pad)
+    xmin = max(0, xmin - pad)
+    xmax = min(w - 1, xmax + pad)
+    cropped = []
+    for y in range(ymin, ymax + 1):
+        cropped.append([
+            fill if bg[y][x] else rows[y][x][:3]
+            for x in range(xmin, xmax + 1)
+        ])
+    write_png_rgb(dest, cropped)
+    return dest
+
+
+def find_chrome():
+    env = os.environ.get("CHROME_BIN") or os.environ.get("GOOGLE_CHROME_BIN")
+    if env and Path(env).exists():
+        return Path(env)
+    for name in ("google-chrome", "chromium", "chromium-browser"):
+        found = shutil.which(name)
+        if found:
+            return Path(found)
+    for p in (
+        Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+        Path("/Applications/Chromium.app/Contents/MacOS/Chromium"),
+        Path.home() / "Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    ):
+        if p.exists():
+            return p
+    return None
+
+
+def render_card_png(fragment, dest, chrome=None):
+    """Rasterize the HTML card to a tightly cropped PNG. Local Chrome only."""
+    chrome = Path(chrome) if chrome else find_chrome()
+    if chrome is None:
+        return None
+    dest = Path(dest)
+    page = html_page_for_png(fragment)
+    with tempfile.TemporaryDirectory(prefix="tc-png-") as td:
+        td = Path(td)
+        html_path = td / "card.html"
+        raw_png = td / "shot.png"
+        html_path.write_text(page, encoding="utf-8")
+        profile = td / "chrome-profile"
+        profile.mkdir()
+        cmd = [
+            str(chrome),
+            "--headless",
+            "--disable-gpu",
+            "--no-first-run",
+            f"--user-data-dir={profile}",
+            f"--screenshot={raw_png}",
+            "--window-size=720,2400",
+            "--virtual-time-budget=4000",
+            html_path.resolve().as_uri(),
+        ]
+        proc = subprocess.Popen(
+            cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        deadline = time.time() + 20
+        try:
+            while time.time() < deadline:
+                if raw_png.exists() and raw_png.stat().st_size > 100:
+                    time.sleep(0.4)
+                    break
+                if proc.poll() is not None:
+                    break
+                time.sleep(0.1)
+            else:
+                raise TimeoutError("chrome screenshot timed out")
+        finally:
+            if proc.poll() is None:
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except OSError:
+                    proc.kill()
+                proc.wait(timeout=5)
+        if not raw_png.exists() or raw_png.stat().st_size < 100:
+            raise FileNotFoundError("chrome did not write a screenshot")
+        crop_png_chroma(raw_png, dest)
+    return dest
+
+
+def open_preview(path):
+    if os.environ.get("TERMINALLY_COOKED_NO_OPEN"):
+        return
+    path = str(path)
+    if sys.platform == "darwin":
+        subprocess.run(["open", path], check=False)
+    elif shutil.which("xdg-open"):
+        subprocess.run(["xdg-open", path], check=False)
 
 
 def projects_dir(override=None):
@@ -776,6 +1073,8 @@ def main():
     ap.add_argument("session", nargs="?", help="Path to a session file/dir, a session-uuid prefix, or omit to auto-pick a juicy session from today (never the live invoking session)")
     ap.add_argument("--html", nargs="?", const="", metavar="OUT",
                     help="Also write a shareable standalone HTML card (default: ./terminally-cooked-card-<id>.html)")
+    ap.add_argument("--png", nargs="?", const="", metavar="OUT",
+                    help="Write a tightly cropped PNG of the card and open it (also writes HTML). Local Chrome only; nothing is uploaded.")
     ap.add_argument("--share", action="store_true",
                     help="Copy a suggested post caption to the clipboard and open a blank X composer. Nothing is transmitted; you paste and post.")
     ap.add_argument("--projects-dir", metavar="DIR",
@@ -790,10 +1089,29 @@ def main():
     buffs = pick_buffs(s)
     final = score(s, buffs)
     print(render(s, buffs, final))
-    if args.html is not None:
-        out = Path(args.html) if args.html else Path(f"terminally-cooked-card-{s['session_id'][:8]}.html")
-        out.write_text(render_html(s, buffs, final))
-        print(f"\nhtml card: {out.resolve()}")
+    html_text = None
+    html_out = None
+    if args.html is not None or args.png is not None:
+        html_text = render_html(s, buffs, final)
+        html_out = Path(args.html) if args.html else Path(
+            f"terminally-cooked-card-{s['session_id'][:8]}.html")
+        html_out.write_text(html_text)
+        print(f"\nhtml card: {html_out}")
+    if args.png is not None:
+        png_out = Path(args.png) if args.png else (
+            html_out.with_suffix(".png") if html_out
+            else Path(f"terminally-cooked-card-{s['session_id'][:8]}.png"))
+        try:
+            written = render_card_png(html_text, png_out)
+        except (OSError, ValueError, subprocess.CalledProcessError, FileNotFoundError) as exc:
+            print(f"png card failed: {exc}", file=sys.stderr)
+            written = None
+        if written is None and find_chrome() is None:
+            print("png card: no local Chrome/Chromium found; HTML was written instead",
+                  file=sys.stderr)
+        elif written is not None:
+            print(f"png card: {written}")
+            open_preview(written)
     if args.share:
         caption = share_caption(s, buffs, final)
         print("\nsuggested caption:\n" + caption)
