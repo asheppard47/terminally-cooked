@@ -14,11 +14,14 @@ description: >
 Run the CLI in this repo. Do not reimplement scoring.
 
 **Never grade the session you are currently in.** The invoking chat is a
-probe, not a work session. Omit the path. The CLI skips the live session by
-harness env (`GROK_SESSION_ID`, `CODEX_THREAD_ID`, `CLAUDE_SESSION_ID`) and
-picks the meatiest other session from today. If today has nothing else, it
-looks back one week. Do not pass the current transcript path, uuid, or
-rollout file.
+probe, not a work session. Use automatic selection only when the invoking
+session can be reliably identified and excluded. The CLI recognizes harness
+session IDs, but its recency fallbacks do not prove identity; see
+[selection limits](docs/engineering/architecture.md#auto-pick-selection-and-limits).
+If exclusion cannot be established, abstain and explain the limitation.
+When exclusion is reliable, omit the path to select another work session
+from today, with a one-week fallback. Do not pass the current transcript
+path, uuid, or rollout file.
 
 ```bash
 python3 grade_session.py --png      # juicy session from today; write cropped PNG and open it
@@ -70,8 +73,11 @@ source.
 
 ## How to invoke
 
-Run `python3 grade_session.py --png` with no session argument from this repo
-root. That writes a cropped PNG of the card (local Chrome, no upload) and
+If the user specifies a known other session, pass its path or UUID prefix to
+`python3 grade_session.py --png`. Otherwise, after establishing invoker
+exclusion, run that command with no session argument from this repo root.
+If exclusion cannot be established, abstain and explain the limitation.
+That writes a cropped PNG of the card (local Chrome, no upload) and
 opens it. Do not add a light or paper frame around the image. Show the ANSI
 card too. Do not explain the skip/pick note unless the user asks how the
 session was chosen. Do not post the image; the user does.

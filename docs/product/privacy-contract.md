@@ -3,10 +3,10 @@ version: "1.0.0"
 schema_version: 2
 title: "Privacy Contract"
 doc_type: detail
-parent: INDEX.md
-last_updated: 2026-08-19
+parent: docs/product/INDEX.md
+last_updated: 2026-09-12
 last_audit: 2026-08-19
-audit_status: current
+audit_status: needs-review
 domain: docs
 triggers:
   - "llm grader privacy"
@@ -34,7 +34,7 @@ An AI-coding session transcript is among the most sensitive files on a developer
 | No network path | Code review; no HTTP client is imported in the grading path |
 | Field allowlist | `test_html_card_allowlist` plants secret prompt text, tool output, and paths in a fixture and asserts none reach the rendered card |
 | Metadata safety | Model and effort strings come from the transcript and are sanitized to a conservative character set before rendering, so transcript-controlled text cannot inject markup or terminal escapes |
-| Sharing is human | No upload, share, or post feature exists |
+| Sharing is human | `--share` copies an allowlisted caption locally and opens a blank composer; the user pastes and posts. No automatic upload or posting exists |
 
 ## Known residual risks
 

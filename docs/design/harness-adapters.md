@@ -3,10 +3,10 @@ version: "1.0.0"
 schema_version: 2
 title: "Harness Adapters — Route-by-Harness Design"
 doc_type: detail
-parent: INDEX.md
-last_updated: 2026-08-20
+parent: docs/design/INDEX.md
+last_updated: 2026-09-12
 last_audit: 2026-08-20
-audit_status: current
+audit_status: needs-review
 domain: docs
 triggers:
   - "harness adapter"
@@ -32,7 +32,7 @@ One contract change came out of this review: the success flag becomes a **tri-st
 | Claude Code | `~/.claude/projects/<proj>/<uuid>.jsonl` | flat JSONL whose records carry `message.content[]` with `tool_use`/`tool_result` and `isSidechain` fields |
 | Codex CLI | `~/.codex/sessions/YYYY/MM/DD/rollout-<ts>-<uuid>.jsonl` (archived: `~/.codex/archived_sessions/`) | envelope records `{timestamp, type, payload}` with types `session_meta` / `turn_context` / `response_item` / `event_msg`; filename prefix `rollout-` |
 | Grok CLI | `~/.grok/sessions/<url-encoded-cwd>/<uuidv7>/` — a **directory**, not a file | dir containing `summary.json` + `updates.jsonl` (and usually `events.jsonl`); `$GROK_HOME` overrides root |
-| Gemini CLI | `~/.gemini/tmp/<project-hash>/chats/session-<ts>-<hash>.jsonl` | first line parses as `{"type": "session_metadata", …}` |
+| Gemini CLI | `~/.gemini/tmp/<project-hash>/chats/session-<ts>-<hash>.jsonl` | a sniffed record contains `sessionId` and `projectHash`; full records can be interleaved with `$set` patches |
 
 Detection is content-first (sniff the schema), path-second (the default roots above), and never trusts extension alone.
 
@@ -47,7 +47,7 @@ Detection is content-first (sniff the schema), path-second (the default roots ab
 | Model + effort | **per-turn** `turn_context.payload.model` and `.effort` — richer than Claude Code | `turn_started.model_id`; effort NOT FOUND | model in metadata; effort UNVERIFIED |
 | Tokens | `event_msg.token_count` → `last_token_usage` (incl. cached + reasoning tokens) | `turn_completed.usage` (`inputTokens`, `cachedReadTokens`, `reasoningTokens`, `costUsdTicks`) | `message_update` / result frames |
 | Permission / YOLO | `turn_context.payload.approval_policy` + `sandbox_policy` — YOLO only from the explicit dangerous combination, never `approval=never` alone | **first-class**: `turn_started.yolo_mode` boolean, `yolo_toggled`, `permission_resolved` decisions | global settings; per-turn UNVERIFIED |
-| Compaction | `event_msg.context_compacted` | `compaction_checkpoints/` dir | UNVERIFIED |
+| Compaction | top-level `compacted` record | `compaction_checkpoints/` dir | UNVERIFIED |
 | Test output pairing | via `call_id`; apply our test-shaped-command gate | derivable from tool results; same gate | derivable from shell tool pairs; same gate |
 | Delegation | `event_msg.sub_agent_activity`, `thread_spawn_edges` | **first-class**: `session_relationship: primary/subagent`, `subagents/` dir, child sessions are ordinary dirs | subagent-scoped records in-stream |
 
@@ -74,4 +74,4 @@ read(ref)           -> Iterator[NormalizedEvent] # feeds the 10-observable contr
 
 **Implemented 2026-08-20** in `harness_adapters.py` (all four adapters + detection), with `analyze()` refactored into a harness-agnostic event consumer. Every schema was re-verified against real local session stores before coding, which corrected two advisory claims: Codex compaction is a top-level `compacted` record (not only `event_msg.context_compacted`), and Gemini files begin with a `sessionId/projectHash/kind` header followed by full-record lines interleaved with `$set` patches (not a `session_metadata` typed record). Gemini message records repeat with the same id as tool calls progress, so the adapter dedupes tool calls by call id. Cross-harness smoke: real Codex, Grok, Gemini and Claude Code sessions all grade; Codex sessions surface tri-state unknowns on the card (`?N unknown`); the adapter name is stamped in the card's provenance line per ruling D12.
 
-Known v1 simplifications, on purpose: the Grok adapter reads `events.jsonl` + `updates.jsonl` only (no `chat_history.jsonl`) and emits a human turn per `turn_started`. Command text for Doom Loop comes from `updates.jsonl` `rawInput.command` when present; test tallies still fail open because `tool_completed` carries no stdout. Usage is the last `turn_completed` snapshot (`inputTokens` already includes cache — same Codex lesson). The Grok recompute stamp hashes both files. Auto-pick skips the invoking session via harness env ids (`GROK_SESSION_ID`, `CODEX_THREAD_ID`, `CLAUDE_SESSION_ID`) and drops Codex subagent rollouts (`session_meta.source.subagent`). Juice counts unknown Codex results and near-zeroes sub-5-minute probes; the weekly shortlist is the 20 most recently written under-cap sessions, not the 20 largest files. The Gemini adapter treats statuses outside its map as unknown. Full advisory transcripts were session-scratchpad artifacts; this doc is the durable record.
+Known v1 simplifications, on purpose: the Grok adapter reads `events.jsonl` + `updates.jsonl` only (no `chat_history.jsonl`) and emits a human turn per `turn_started`. Command text for Doom Loop comes from `updates.jsonl` `rawInput.command` when present; test tallies fail open because `tool_completed` carries no stdout. Usage is the last `turn_completed` snapshot (`inputTokens` already includes cache — same Codex lesson). The Grok recompute stamp frames each file name and length before its bytes. The Gemini adapter treats statuses outside its map as unknown. Auto-pick behavior, candidate limits, invoker uncertainty, and the Codex archive omission are owned by [engineering/architecture.md](../engineering/architecture.md#auto-pick-selection-and-limits). Full advisory transcripts were session-scratchpad artifacts; this doc is the durable format record.

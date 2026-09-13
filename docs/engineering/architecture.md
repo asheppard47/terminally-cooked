@@ -3,10 +3,10 @@ version: "1.0.0"
 schema_version: 2
 title: "Architecture"
 doc_type: detail
-parent: INDEX.md
-last_updated: 2026-08-19
+parent: docs/engineering/INDEX.md
+last_updated: 2026-09-12
 last_audit: 2026-08-19
-audit_status: current
+audit_status: needs-review
 domain: docs
 triggers:
   - "llm grader architecture"
@@ -20,7 +20,7 @@ triggers:
 ## Data flow
 
 ```
-find_session(arg)         → path (file or session directory)
+find_session(arg)         → explicit path/prefix, or an auto-picked candidate
    ↓
 detect_harness(path)      → claude-code | codex | grok | gemini   (content sniff)
    ↓
@@ -37,11 +37,22 @@ render / render_html      → ANSI card, HTML card (adapter stamped in provenanc
 
 Tool-result success is **tri-state** (`True | False | None`): unknown outcomes (common in Codex rollouts, which carry no universal error boolean) count toward neither streaks nor spirals and surface on the card as `?N unknown`.
 
+## Auto-pick selection and limits
+
+No argument takes the auto-pick path; an explicit existing path or UUID prefix selects that requested session directly. Auto-pick gathers supported primary-session stores, excludes files over 50 MiB, and excludes Codex rollouts marked as subagents. It does **not** enumerate `~/.codex/archived_sessions/`.
+
+It excludes every candidate matching a recognized `GROK_SESSION_ID`, `CODEX_THREAD_ID`, `CODEX_SESSION_ID`, `CLAUDE_SESSION_ID`, or `CLAUDE_CODE_SESSION_ID`. Independently, it also excludes the newest Claude JSONL in the project directory derived from the current working directory. Both checks run, so a foreign-harness ID does not suppress the Claude exclusion. Concurrent sessions in that same project can still make the newest Claude file the wrong exclusion. If neither check produces a match, it excludes the globally newest candidate by mtime. Neither recency fallback proves invoker identity; the product rule remains never grade the invoking session.
+
+After exclusions, the scoring pool is the union of every under-cap candidate modified since local midnight and the 20 most recently modified under-cap candidates from the seven-day lookback, deduplicated by resolved path. Those 20 include today's candidates; if today supplies at least 20 candidates, no older candidate enters the pool. If none falls within the lookback by modification time, the 20 are taken from all remaining candidates. Therefore the current path has no fixed cap for today and does not inspect every older session in the week. Unreadable candidates are skipped.
+
+Final selection uses a candidate's first normalized event timestamp, falling back to file mtime when that timestamp is missing or invalid. Only ages from zero through seven calendar days qualify, so an older fallback candidate can be parsed without becoming eligible, and selection may still find nothing. Selection order is sessions lasting at least five minutes from today, then from the lookback, then shorter probes from today, then probes from the lookback. The highest positive juice score within the first nonempty group wins. Juice counts known and unknown tool results and weights duration; it measures selection activity, not the entertainment score.
+
 ## Responsibilities
 
 | Function | Owns | Never does |
 |---|---|---|
-| `find_session` | resolving a path, a UUID prefix, or "most recent" | reading content |
+| `find_session` | resolving a path or UUID prefix, or delegating to auto-pick | rendering a card |
+| `pick_juicy_session` | excluding recognized invoker IDs and the newest Claude transcript in the current project, then selecting from the current candidate set | proving identity when neither signal is available |
 | `iter_records` | streaming JSONL, skipping malformed lines | interpreting semantics |
 | `analyze` | one pass producing every observable — counts, streaks, doom-loop runs, cook chain, time windows, tokens, models, effort, compaction, transcript hash | any scoring judgment |
 | `pick_buffs` | the catalog: thresholds, classes, reason strings | arithmetic on the total |
@@ -65,7 +76,7 @@ The single `analyze` pass is deliberate: streaks, spirals, doom-loop runs and wi
 ## Interfaces
 
 ```bash
-python3 grade_session.py                  # most recent session
+python3 grade_session.py                  # auto-picked candidate
 python3 grade_session.py a3a4d4fb         # by UUID prefix
 python3 grade_session.py path/to/x.jsonl  # explicit path
 python3 grade_session.py --html [out.html]
@@ -75,4 +86,4 @@ Exit is non-zero with a clear message when no transcript matches. `FORCE_COLOR=1
 
 ## Dependencies
 
-Grading uses the standard library only. Pillow is required for the badge art pipeline and for the injection test's fixtures, not for grading. The transcript format is Claude Code's internal JSONL, which is the tool's principal coupling: see [transcript-observables.md](./transcript-observables.md) for how that risk is contained.
+Grading uses the standard library only. Pillow is required for the badge art pipeline and for the injection test's fixtures, not for grading. The supported transcript formats are internal and version-dependent; [harness-adapters.md](../design/harness-adapters.md) owns their locations, format-specific limits, and containment.

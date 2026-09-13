@@ -3,10 +3,10 @@ version: "1.0.0"
 schema_version: 2
 title: "Transcript Observables"
 doc_type: detail
-parent: INDEX.md
-last_updated: 2026-08-19
+parent: docs/engineering/INDEX.md
+last_updated: 2026-09-12
 last_audit: 2026-08-19
-audit_status: current
+audit_status: needs-review
 domain: docs
 triggers:
   - "session jsonl"
@@ -16,7 +16,9 @@ triggers:
 ---
 # Transcript Observables
 
-**Everything the grader knows comes from one local JSONL file per session, and every observable listed here was verified against real transcripts rather than assumed.** That distinction is not academic: the first compaction detector shipped against a guessed marker and could never have fired.
+**This leaf records Claude Code observables from one local JSONL file per session; every observable listed here was verified against real transcripts rather than assumed.** That distinction is not academic: the first compaction detector shipped against a guessed marker and could never have fired.
+
+Other supported harnesses have different stores and record shapes; see [harness-adapters.md](../design/harness-adapters.md).
 
 ## Location
 

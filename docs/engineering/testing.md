@@ -3,10 +3,10 @@ version: "1.0.0"
 schema_version: 2
 title: "Testing"
 doc_type: detail
-parent: INDEX.md
-last_updated: 2026-08-19
+parent: docs/engineering/INDEX.md
+last_updated: 2026-09-12
 last_audit: 2026-08-19
-audit_status: current
+audit_status: needs-review
 domain: docs
 triggers:
   - "llm grader tests"
@@ -15,10 +15,10 @@ triggers:
 ---
 # Testing
 
-**Twenty-four tests run against synthetic transcripts built in-test, covering the two things that actually break: sequence bookkeeping and the privacy allowlist.** No test depends on a real session file, so the suite is deterministic and safe to run anywhere.
+**Fifty-seven tests run against synthetic transcripts built in-test, covering sequence bookkeeping, privacy, supported harness adapters, and auto-pick safeguards.** No test depends on a real session file, so the suite is deterministic and safe to run anywhere.
 
 ```bash
-python3 test_grade_session.py     # 24 tests, self-reporting, exit 1 on failure
+python3 test_grade_session.py     # 57 tests, self-reporting, exit 1 on failure
 ```
 
 ## What is covered

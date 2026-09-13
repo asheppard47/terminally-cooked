@@ -3,10 +3,10 @@ version: "1.0.0"
 schema_version: 2
 title: "Decision Log"
 doc_type: detail
-parent: INDEX.md
-last_updated: 2026-08-20
+parent: docs/product/INDEX.md
+last_updated: 2026-09-12
 last_audit: 2026-08-19
-audit_status: current
+audit_status: needs-review
 domain: docs
 triggers:
   - "llm grader decisions"
@@ -32,7 +32,6 @@ triggers:
 | D9 | 2026-08-19 | **Badge names are rendered by the UI, not painted into the art.** Baked-in nameplates degrade to noise at 32 px and cannot be made consistent across models. | Game-industry icon review |
 | D10 | 2026-08-19 | **Art direction: painterly, luminous, textless.** Terminal-green/cyber palettes, neon "electric" grading, and photographic HDR vocabulary are all rejected. | Owner art direction |
 | D11 | 2026-08-19 | **Blind A/B, one vote per person, outside parties.** Both models render identical prompts; votes are collected as native Telegram polls in a real developer group rather than solo judgment. | Owner; both review waves flagged solo comedy judgment as a defect |
-
 | D12 | 2026-08-20 | **Scoring standard: one complete native session is the canonical unit.** No rolling lookback (invites boundary slicing), no best-session ladder (rewards grinding). Comparability rides the identity tuple — scoring version, division (blitz/sprint/long haul), delegation class, duration, recompute stamp — never the bare number. | Publish-review wave (Sol #10-11; Flash's normalized-rating proposal partially adopted as divisions-as-labels, rejected as a second score) |
 | D13 | 2026-08-20 | **Subagent work is never imputed.** Sessions with subagent calls print a delegation class ("internals not graded"). Weighting Agent calls by duration or tokens fabricates precision about invisible work. | Publish-review wave (Sol #3 over Flash #2) |
 | D14 | 2026-08-20 | **Share-to-X is caption-to-clipboard plus a blank composer.** No prefilled intent URLs and no upload APIs — both transmit the score before the user posts. The `--share` flag copies a caption from allowlisted fields and opens the composer; the user pastes. | Publish-review wave (Sol #16 over Flash #8) |
@@ -50,6 +49,9 @@ triggers:
 | Persistent badges and a local history file | Deliberately unbuilt; audience research says session-scoped roasts are welcome and lifetime counters are mocked | Needs a history schema allowlist + idempotency tests first |
 | Public display name vs repo slug | **Closed 2026-08-20 (D19):** Terminally Cooked — An AI Coding Session Roast; GitHub `asheppard47/terminally-cooked`. Working title LLM Grader retired. | — |
 | Marketing and recognition lane | Designed as card-level only; waits for users | Real users |
+| Invoker exclusion under uncertain identity | The settled rule remains never grade the invoking session. The recency fallbacks described in [architecture](../engineering/architecture.md#auto-pick-selection-and-limits) do not prove identity, including concurrent Claude sessions in one project. | Reliable harness identity or abstention when exclusion cannot be established; fixtures for unknown identity and an older invoking session in the same project; then align the CLI docstring and `--help` promise with the enforced behavior |
+| Codex archived-session discovery | `~/.codex/archived_sessions/` is documented but not enumerated by `list_sessions`. | Add discovery and fixtures, or remove the location from supported auto-pick scope |
+| Candidate coverage outside today | Auto-pick scores every under-cap session from today and only the 20 most recently written under-cap recent sessions. | Define and test an intended bounded strategy if whole-week selection is required |
 
 ## Reversal conditions
 

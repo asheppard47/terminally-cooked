@@ -12,7 +12,7 @@ games. The card stamps which adapter produced it.
 ```bash
 git clone https://github.com/asheppard47/terminally-cooked.git
 cd terminally-cooked
-python3 grade_session.py            # juicy session from today, never the live one
+python3 grade_session.py            # auto-pick; check the selection limits below
 python3 grade_session.py --png      # also write a tightly cropped PNG and open it
 python3 grade_session.py a3a4d4fb   # session-uuid prefix
 python3 grade_session.py path/to/session.jsonl
@@ -21,6 +21,8 @@ python3 grade_session.py --share    # copy a caption; you paste it
 python3 test_grade_session.py       # 57 tests
 python3 grade_session.py --help
 ```
+
+Never grade the invoking session. Auto-pick excludes recognized harness IDs and uses recency fallbacks that can exclude the wrong session when identity is uncertain. Use a known other session, or abstain if it cannot be established. See [the selection limits](./docs/engineering/architecture.md#auto-pick-selection-and-limits).
 
 Python 3.9+, stdlib only. Badge PNGs live in `assets/badges/` and ride along
 in the clone. HTML cards embed them as data URIs, so producing a card does not
