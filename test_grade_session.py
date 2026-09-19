@@ -836,7 +836,7 @@ def test_pick_claude_cwd_skips_newest_in_project():
     import os
     from grade_session import pick_juicy_session, claude_project_slug
     home = Path(tempfile.mkdtemp())
-    cwd = Path("/Users/office/repos/personal/Game Dev")
+    cwd = Path("/Users/example/projects/Game Dev")
     slug = claude_project_slug(cwd)
     d = Path(home) / ".claude" / "projects" / slug
     d.mkdir(parents=True)
