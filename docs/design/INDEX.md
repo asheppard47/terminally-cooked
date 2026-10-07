@@ -3,7 +3,7 @@ version: "1.0.0"
 schema_version: 2
 title: "Design — Behavior Spec"
 doc_type: index
-parent: ../../INDEX.md
+parent: INDEX.md
 last_updated: 2026-08-19
 last_audit: 2026-08-19
 audit_status: current
